@@ -324,8 +324,10 @@ def selftest(out_path: str | None = None) -> int:
                 sk = Ed25519PrivateKey.generate()
                 raw = sk.public_key().public_bytes_raw()
                 L.PUBKEY_OVERRIDE = _b64.urlsafe_b64encode(raw).decode().rstrip("=")
-                mk = call("/api/auth/status")["machine_key"]
-                blocked = call("/api/license/status")["valid"] is False
+                L._valid_cache["t"] = 0
+                st0 = call("/api/auth/status")              # công khai (chưa đăng nhập vẫn gọi được)
+                mk = st0["machine_key"]
+                blocked = st0["license"]["valid"] is False   # có khoá công khai mà chưa kích hoạt -> phải bị chặn
                 body = _b64.urlsafe_b64encode(json.dumps({"v": 1, "mk": mk, "st": "active", "exp": int(_t.time()) + 3600,
                                                           "iat": int(_t.time())}).encode()).decode().rstrip("=")
                 tok = body + "." + _b64.urlsafe_b64encode(sk.sign(body.encode())).decode().rstrip("=")
