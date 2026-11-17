@@ -315,34 +315,29 @@ def selftest(out_path: str | None = None) -> int:
             except Exception as e:
                 check("API bi khoa khi chua dang nhap", False, repr(e))
             try:
-                # Giấy phép: tạo khoá thử NGAY TRONG tiến trình tự kiểm tra, ký giấy phép cho mã máy này rồi kích hoạt
-                # -> kiểm tra trọn đường chữ ký số mà không cần máy chủ Admin.
+                # Giấy phép: tạo khoá thử NGAY TRONG tiến trình tự kiểm tra, ký giấy phép cho tài khoản thử + mã máy này,
+                # kích hoạt rồi đăng nhập -> kiểm tra trọn đường chữ ký số + đăng nhập tài khoản mà không cần máy chủ Admin.
                 import base64 as _b64
                 import time as _t
                 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+                from app.auth import auth as _auth
                 from app.services import license_service as L
                 sk = Ed25519PrivateKey.generate()
-                raw = sk.public_key().public_bytes_raw()
-                L.PUBKEY_OVERRIDE = _b64.urlsafe_b64encode(raw).decode().rstrip("=")
+                L.PUBKEY_OVERRIDE = _b64.urlsafe_b64encode(sk.public_key().public_bytes_raw()).decode().rstrip("=")
                 L._valid_cache["t"] = 0
                 st0 = call("/api/auth/status")              # công khai (chưa đăng nhập vẫn gọi được)
                 mk = st0["machine_key"]
-                blocked = st0["license"]["valid"] is False   # có khoá công khai mà chưa kích hoạt -> phải bị chặn
-                body = _b64.urlsafe_b64encode(json.dumps({"v": 1, "mk": mk, "st": "active", "exp": int(_t.time()) + 3600,
-                                                          "iat": int(_t.time())}).encode()).decode().rstrip("=")
+                blocked = st0["license"]["valid"] is False and st0["mode"] == "account"
+                body = _b64.urlsafe_b64encode(json.dumps({"v": 2, "mk": mk, "u": "selftest", "st": "active",
+                                                          "exp": int(_t.time()) + 3600, "iat": int(_t.time())}).encode()).decode().rstrip("=")
                 tok = body + "." + _b64.urlsafe_b64encode(sk.sign(body.encode())).decode().rstrip("=")
                 ok = call("/api/license/activate", {"code": tok})["valid"]
-                check("Giay phep theo ma may (chu ky so)", blocked and ok, mk)
+                check("Giay phep tai khoan + ma may (chu ky so)", blocked and ok, mk)
+                _auth._cache_account("selftest", "selftest-pass")
+                call("/api/auth/login", {"username": "selftest", "password": "selftest-pass"})
+                check("Dang nhap tai khoan (khong can mang)", call("/api/auth/status")["authenticated"])
             except Exception as e:
-                check("Giay phep theo ma may (chu ky so)", False, repr(e))
-            try:
-                if not call("/api/auth/status")["configured"]:
-                    call("/api/auth/setup", {"password": "selftest-pass"})
-                check("Dang nhap (ma may + mat khau)", call("/api/auth/status")["authenticated"])
-                call("/api/auth/change", {"old_password": "selftest-pass", "new_password": "selftest-pass2"})
-                check("Doi mat khau", True)
-            except Exception as e:
-                check("Dang nhap / doi mat khau", False, repr(e))
+                check("Giay phep / dang nhap tai khoan", False, repr(e))
             try:
                 check("Co so du lieu (tao project)", bool(call("/api/projects", {"title": "selftest"}).get("id")))
             except Exception as e:

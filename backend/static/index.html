@@ -44,6 +44,10 @@ hr{border:0;border-top:1px solid var(--bd);margin:14px 0}small{color:var(--mut);
 #sysbar{display:flex;gap:8px;align-items:center;padding:0 12px;border-top:1px solid var(--bd);background:#0b0d11;font-size:12px;color:var(--mut);white-space:nowrap;overflow:hidden;cursor:pointer}
 #sysbar b{color:var(--tx);font-weight:500}#sysbar .hot{color:var(--wa)}#sysbar .crit{color:var(--er)}#sysbar .gpu{color:var(--ok)}
 .keyrow{display:grid;grid-template-columns:1fr auto;gap:6px}.keyrow input{font-family:ui-monospace,Consolas,monospace;letter-spacing:.04em}
+#gTabs{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+#gTabs button{border:0;border-radius:0;padding:9px;background:transparent;color:var(--mut);font-weight:600}#gTabs button.on{background:var(--ac);color:#fff}
+.gpane{display:grid;gap:10px}.gcode{font:600 22px ui-monospace,Consolas,monospace;letter-spacing:.18em;text-align:center;text-transform:uppercase}
+.glink{background:none;border:0;padding:0;color:var(--ac);cursor:pointer;font-size:12px;text-align:left}
 #licChip{border:1px solid var(--bd);border-radius:20px;padding:3px 10px;font-size:12px;cursor:pointer;white-space:nowrap}#licChip.warn{color:var(--wa);border-color:var(--wa)}
 .flist{display:grid;gap:3px;max-height:260px;overflow:auto;margin:6px 0}.flist label{display:grid;grid-template-columns:auto 1fr auto;gap:6px;align-items:center;font-size:12px}
 .flist small{white-space:nowrap}.hwgrid{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}.hwgrid span:nth-child(odd){color:var(--mut)}
@@ -107,25 +111,44 @@ dialog{background:var(--p1);color:var(--tx);border:1px solid var(--bd);border-ra
  <form class="box" id="gForm" autocomplete="off" onsubmit="return false">
   <div class="lock">🔒</div>
   <h1>Movie Review Editor</h1>
-  <div id="licBox" hidden style="display:grid;gap:10px">
-   <p id="lMsg"></p>
-   <label>Mã máy của bạn<div class="keyrow"><input id="lKey" readonly><button type="button" data-copykey="#lKey">⧉ Sao chép</button></div></label>
-   <label>Tên / SĐT của bạn <span class="mut">(để Admin nhận ra)</span><input id="lName" maxlength="80"></label>
-   <button class="p big" id="lSend" type="button">📨 Gửi yêu cầu kích hoạt cho Admin</button>
-   <button type="button" id="lCheck">↻ Kiểm tra lại</button>
-   <details><summary>Có mã kích hoạt từ Admin?</summary><textarea id="lCode" rows="3" style="width:100%;margin-top:6px" placeholder="Dán mã kích hoạt vào đây"></textarea><button type="button" id="lAct" style="margin-top:6px">Kích hoạt</button></details>
-   <details><summary>Địa chỉ máy chủ Admin</summary><input id="lSrv" style="margin-top:6px" placeholder="vd: http://192.168.1.10:8800"><button type="button" id="lSrvSave" style="margin-top:6px">Lưu & gửi lại</button></details>
+  <!-- CHẾ ĐỘ TÀI KHOẢN -->
+  <div id="accBox" class="gpane" hidden>
+   <div id="gTabs"><button type="button" data-gtab="login">Đăng nhập</button><button type="button" data-gtab="register">Đăng ký</button></div>
+   <div id="gLogin" class="gpane">
+    <label>Tên đăng nhập<input id="aUser" autocomplete="username" spellcheck="false"></label>
+    <label>Mật khẩu<input id="aPw" type="password" autocomplete="current-password"></label>
+    <button class="p big" id="aLoginBtn" type="submit">Đăng nhập</button>
+    <button type="button" class="glink" id="aForgot">Quên mật khẩu?</button>
+   </div>
+   <div id="gReg" class="gpane" hidden>
+    <label>Tên đăng nhập <span class="mut">(3–32 ký tự: chữ không dấu, số, . _ -)</span><input id="rUser" spellcheck="false" maxlength="32"></label>
+    <label>Mật khẩu <span class="mut">(≥ 6 ký tự)</span><input id="rPw" type="password" autocomplete="new-password"></label>
+    <label>Nhập lại mật khẩu<input id="rPw2" type="password" autocomplete="new-password"></label>
+    <label>Họ tên<input id="rName" maxlength="80"></label>
+    <label>Số điện thoại / Zalo <span class="mut">(để Admin gửi mã kích hoạt)</span><input id="rPhone" maxlength="30"></label>
+    <button class="p big" id="rBtn" type="button">📨 Đăng ký & gửi yêu cầu cho Admin</button>
+   </div>
+   <div id="gPend" class="gpane" hidden>
+    <p id="pMsg"></p>
+    <div class="hwgrid"><span>Tài khoản</span><span><b id="pUser"></b></span><span>Mã máy</span><span><b id="pMk" style="font-family:Consolas,monospace"></b> <button type="button" class="glink" id="pCopy">sao chép</button></span></div>
+    <label>Mã kích hoạt Admin gửi cho bạn<input id="pCode" class="gcode" maxlength="400" placeholder="XXXX-XXXX" spellcheck="false"></label>
+    <button class="p big" id="pBtn" type="button">✓ Kích hoạt máy này</button>
+    <div class="row" style="margin:0;justify-content:space-between"><button type="button" id="pCheck">↻ Kiểm tra lại</button><button type="button" class="glink" id="pOther">Đăng nhập tài khoản khác</button></div>
+   </div>
+   <details><summary class="mut">Địa chỉ máy chủ Admin</summary><div class="keyrow" style="margin-top:6px"><input id="lSrv" placeholder="vd: http://107.167.71.19:8800"><button type="button" id="lSrvSave">Lưu</button></div></details>
   </div>
-  <div id="pwBox" style="display:grid;gap:12px">
+  <!-- CHẾ ĐỘ CỤC BỘ (bản không gắn giấy phép) -->
+  <div id="pwBox" class="gpane" hidden>
    <p id="gHint">Nhập mật khẩu để vào ứng dụng.</p>
    <label>Key (mã máy — tự điền)<div class="keyrow"><input id="gKey" readonly tabindex="-1"><button type="button" data-copykey="#gKey" title="Sao chép">⧉</button></div></label>
    <label>Mật khẩu<input id="gPw" type="password" autocomplete="off"></label>
    <label id="gPw2Wrap" hidden>Nhập lại mật khẩu<input id="gPw2" type="password" autocomplete="off"></label>
-   <label class="chk" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="gShow" style="width:auto;margin:0">Hiện mật khẩu</label>
    <button class="p big" id="gGo" type="submit">Đăng nhập</button>
+   <button type="button" class="glink" id="gForgot">Quên mật khẩu?</button>
   </div>
+  <label class="chk" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="gShow" style="width:auto;margin:0">Hiện mật khẩu</label>
   <div id="gMsg" class="mut"></div>
-  <small id="gFoot">Ứng dụng tự khoá mỗi lần đóng. Quên mật khẩu: nhờ Admin bấm “Đặt lại MK” cho mã máy của bạn.</small>
+  <small id="gFoot"></small>
  </form>
 </div>
 
@@ -203,7 +226,7 @@ async function api(path,opt={},timeoutMs=0){
   try{r=await fetch('/api'+path,opt)}catch(e){clearTimeout(timer);throw new Error(await netError(e))}
   clearTimeout(timer);
   if(r.status===401&&!path.startsWith('/auth/')){showLogin('Phiên đăng nhập đã hết. Hãy đăng nhập lại.');throw new Error('Cần đăng nhập')}
-  if(r.status===402&&!path.startsWith('/license/')){const t=errText(await r.text());try{AUTH=await api('/auth/status')}catch{}showLicense(t);throw new Error(t)}
+  if(r.status===402&&!path.startsWith('/license/')){const t=errText(await r.text());try{AUTH=await api('/auth/status')}catch{}routeAuth(t);throw new Error(t)}
   if(!r.ok)throw new Error(errText(await r.text()));
   return r.status===204?null:r.json();
 }
@@ -256,72 +279,111 @@ async function boot(){
   try{AUTH=await api('/auth/status')}catch(e){document.body.innerHTML='<p style="padding:30px">Không kết nối được máy chủ nội bộ. Hãy đóng rồi mở lại ứng dụng.</p>';return}
   routeAuth();
 }
-function routeAuth(msg){
-  const L=AUTH.license||{};
-  if(L.required&&!L.valid)return showLicense(msg);
-  AUTH.authenticated?afterLogin():showLogin(msg);
-}
 function lockUI(){LOCKED=true;try{pv.pause();pa.pause();S.playing=false}catch{}$('#app').hidden=true;$('#gate').hidden=false}
+function gMsg(t,err){const m=$('#gMsg');m.className=err?'err':'mut';m.textContent=t||''}
+function routeAuth(msg){
+  if(AUTH.mode!=='account')return AUTH.authenticated?afterLogin():showLocal(msg);
+  const L=AUTH.license||{};
+  if(AUTH.authenticated&&L.valid)return afterLogin();
+  if(L.status==='pending')return showPending(msg&&msg!==L.message?msg:'');
+  showAccount(L.user?'login':'register',msg||(['revoked','blocked','expired','clock'].includes(L.status)?L.message:''));
+}
+async function gPost(path,body){        // gọi API màn hình khoá, giữ nguyên dữ liệu lỗi (cần_kích_hoạt…)
+  const r=await fetch('/api'+path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})});
+  let d={};try{d=await r.json()}catch{}return {ok:r.ok,status:r.status,data:d};
+}
 let licPoll=null;
-function showLicense(msg){
-  lockUI();const L=AUTH.license||{};
-  $('#licBox').hidden=false;$('#pwBox').hidden=true;$('#gFoot').hidden=true;
-  $('#lKey').value=L.machine_key||AUTH.machine_key||'';if(!$('#lName').value)$('#lName').value=L.name||'';$('#lSrv').value=L.server||'';
-  const sent=['pending','unregistered'].includes(L.status)&&L.status==='pending';
-  $('#lMsg').textContent=msg&&msg!==L.message?msg:(L.message||'Máy này chưa được cấp phép.');
-  $('#lSend').textContent=sent?'📨 Gửi lại yêu cầu':'📨 Gửi yêu cầu kích hoạt cho Admin';
-  $('#lSend').hidden=['blocked','expired','clock'].includes(L.status);
-  const m=$('#gMsg');m.className=L.server_ok===false?'err':'mut';m.textContent=L.server_ok===false?('✗ '+L.server_msg):(L.server?'':'Bản này chưa gắn địa chỉ máy chủ Admin — nhập ở mục “Địa chỉ máy chủ Admin”, hoặc dán mã kích hoạt.');
-  clearInterval(licPoll);licPoll=setInterval(()=>licRefresh(true),20000);
+function accFrame(){lockUI();$('#accBox').hidden=false;$('#pwBox').hidden=true;$('#lSrv').value=(AUTH.license||{}).server||'';
+  $('#gFoot').textContent='Mã máy: '+(AUTH.machine_key||'');}
+function showAccount(tab,msg){
+  accFrame();clearInterval(licPoll);
+  $('#gTabs').hidden=false;$('#gPend').hidden=true;
+  $('#gLogin').hidden=tab!=='login';$('#gReg').hidden=tab!=='register';
+  document.querySelectorAll('[data-gtab]').forEach(b=>b.classList.toggle('on',b.dataset.gtab===tab));
+  const L=AUTH.license||{};if(tab==='login'&&!$('#aUser').value)$('#aUser').value=L.user||L.pending_user||'';
+  $('#aPw').value='';gMsg(msg,!!msg);
+  setTimeout(()=>{const f=tab==='login'?($('#aUser').value?$('#aPw'):$('#aUser')):$('#rUser');f.focus()},30);
 }
-async function licRefresh(quiet){
-  try{const st=await send('POST','/license/check');AUTH.license=st;
-    if(st.valid){clearInterval(licPoll);AUTH=await api('/auth/status');toast('✓ Máy đã được kích hoạt'+(st.days_left!=null?` — dùng được ${st.days_left} ngày`:''),'ok');routeAuth()}
-    else if(!quiet||$('#licBox').hidden===false)showLicense()}catch(e){if(!quiet)toast(e.message,'err')}
+function showPending(msg){
+  accFrame();const L=AUTH.license||{};
+  $('#gTabs').hidden=true;$('#gLogin').hidden=true;$('#gReg').hidden=true;$('#gPend').hidden=false;
+  $('#pMsg').textContent=msg||L.message||'Đã gửi yêu cầu kích hoạt cho Admin. Khi Admin gửi mã kích hoạt, hãy nhập vào ô bên dưới.';
+  $('#pUser').textContent=L.pending_user||L.user||'';$('#pMk').textContent=L.machine_key||AUTH.machine_key||'';
+  gMsg(L.server_ok===false?'✗ '+L.server_msg:'',L.server_ok===false);
+  clearInterval(licPoll);licPoll=setInterval(()=>pendRefresh(true),20000);
+  setTimeout(()=>$('#pCode').focus(),30);
 }
-$('#lSend').onclick=async()=>{const b=$('#lSend');b.disabled=true;
-  try{AUTH.license=await send('POST','/license/register',{name:$('#lName').value.trim()});
-    if(AUTH.license.valid){AUTH=await api('/auth/status');return routeAuth()}
-    showLicense();toast('Đã gửi mã máy cho Admin. Khi Admin duyệt, app tự mở khoá (tự kiểm tra mỗi 20 giây).','ok')}
-  catch(e){try{AUTH.license=await api('/license/status')}catch{}showLicense();$('#gMsg').className='err';$('#gMsg').textContent='✗ '+e.message}
-  b.disabled=false};
-$('#lCheck').onclick=()=>licRefresh(false);
-$('#lAct').onclick=async()=>{const c=$('#lCode').value.trim();if(!c)return;
-  try{const st=await send('POST','/license/activate',{code:c});AUTH.license=st;$('#lCode').value='';
-    if(st.valid){AUTH=await api('/auth/status');toast('✓ Đã kích hoạt','ok');routeAuth()}else showLicense()}catch(e){$('#gMsg').className='err';$('#gMsg').textContent='✗ '+e.message}};
-$('#lSrvSave').onclick=async()=>{try{AUTH.license=await send('POST','/license/server',{url:$('#lSrv').value.trim()});toast('Đã lưu địa chỉ máy chủ','ok');$('#lSend').click()}catch(e){toast(e.message,'err')}};
+async function pendRefresh(quiet){
+  const r=await gPost('/license/check');if(!r.ok){if(!quiet)gMsg(r.data.detail,true);return}
+  AUTH=await api('/auth/status');
+  if(AUTH.license.valid){clearInterval(licPoll);toast('✓ Máy đã được kích hoạt — hãy đăng nhập','ok');showAccount('login')}
+  else if(!quiet||AUTH.license.status!=='pending')routeAuth();
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-gtab]');if(b)showAccount(b.dataset.gtab)});
+$('#aLoginBtn').onclick=async()=>{
+  const u=$('#aUser').value.trim(),pw=$('#aPw').value;if(!u||!pw)return gMsg('Nhập tên đăng nhập và mật khẩu.',true);
+  const b=$('#aLoginBtn');b.disabled=true;gMsg('Đang đăng nhập…');
+  const r=await gPost('/auth/login',{username:u,password:pw});b.disabled=false;
+  if(r.ok){AUTH=await api('/auth/status');$('#aPw').value='';gMsg('');return afterLogin()}
+  if(r.status===403&&r.data.need_activation){AUTH=await api('/auth/status');return showPending('Máy này chưa được kích hoạt cho tài khoản “'+u+'”. Đã gửi yêu cầu kích hoạt cho Admin — khi Admin gửi mã, hãy nhập vào ô bên dưới.')}
+  AUTH=await api('/auth/status');gMsg('✗ '+(r.data.detail||'Đăng nhập lỗi'),true);$('#aPw').select();
+};
+$('#rBtn').onclick=async()=>{
+  const u=$('#rUser').value.trim(),pw=$('#rPw').value;
+  if(!/^[a-zA-Z0-9_.-]{3,32}$/.test(u))return gMsg('Tên đăng nhập 3–32 ký tự, chỉ gồm chữ không dấu, số, dấu . _ -',true);
+  if(pw.length<6)return gMsg('Mật khẩu cần ít nhất 6 ký tự.',true);
+  if(pw!==$('#rPw2').value)return gMsg('Mật khẩu nhập lại không khớp.',true);
+  if(!$('#rPhone').value.trim()&&!$('#rName').value.trim())return gMsg('Nhập họ tên hoặc số điện thoại để Admin nhận ra bạn.',true);
+  const b=$('#rBtn');b.disabled=true;gMsg('Đang gửi…');
+  const r=await gPost('/auth/register',{username:u,password:pw,name:$('#rName').value.trim(),phone:$('#rPhone').value.trim()});b.disabled=false;
+  if(!r.ok)return gMsg('✗ '+(r.data.detail||'Đăng ký lỗi'),true);
+  ['#rPw','#rPw2'].forEach(i=>$(i).value='');$('#aUser').value=u;AUTH=await api('/auth/status');
+  if(AUTH.authenticated&&AUTH.license.valid){toast('✓ Đăng ký thành công — bạn được dùng thử','ok');return afterLogin()}
+  showPending('Đăng ký thành công! Yêu cầu đã gửi tới Admin. Khi Admin duyệt, bạn sẽ nhận MÃ KÍCH HOẠT (qua Zalo / SĐT đã đăng ký) — nhập vào ô bên dưới.');
+};
+$('#pBtn').onclick=async()=>{
+  const c=$('#pCode').value.trim();if(!c)return gMsg('Nhập mã kích hoạt Admin gửi.',true);
+  const b=$('#pBtn');b.disabled=true;gMsg('Đang kích hoạt…');
+  const r=await gPost('/license/activate',{code:c});b.disabled=false;
+  if(!r.ok)return gMsg('✗ '+(r.data.detail||'Kích hoạt lỗi'),true);
+  $('#pCode').value='';AUTH=await api('/auth/status');
+  if(AUTH.license.valid){clearInterval(licPoll);toast('✓ Đã kích hoạt máy này','ok');showAccount('login','');gMsg('Đã kích hoạt — đăng nhập để bắt đầu.')}
+  else routeAuth();
+};
+$('#pCheck').onclick=()=>pendRefresh(false);
+$('#pOther').onclick=()=>{clearInterval(licPoll);$('#aUser').value='';showAccount('login')};
+$('#pCopy').onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText($('#pMk').textContent);toast('Đã sao chép mã máy','ok')};
+$('#aForgot').onclick=()=>gMsg('Quên mật khẩu: nhắn Admin (kèm tên đăng nhập) để được đặt mật khẩu mới, rồi đăng nhập bằng mật khẩu đó và đổi lại trong ⚙ Cài đặt.');
+$('#lSrvSave').onclick=async()=>{const r=await gPost('/license/server',{url:$('#lSrv').value.trim()});if(!r.ok)return gMsg('✗ '+r.data.detail,true);
+  AUTH.license=r.data;toast('Đã lưu địa chỉ máy chủ','ok')};
+$('#pCode').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('#pBtn').click()}});
 document.addEventListener('click',e=>{const c=e.target.closest('[data-copytext]');if(c){navigator.clipboard&&navigator.clipboard.writeText(c.dataset.copytext);toast('Đã sao chép','ok');return}
   const b=e.target.closest('[data-copykey]');if(!b)return;const v=$(b.dataset.copykey).value;
   (navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(()=>toast('Đã sao chép mã máy','ok')).catch(()=>{$(b.dataset.copykey).select();document.execCommand('copy');toast('Đã sao chép','ok')})});
-function showLogin(msg){
-  const already=LOCKED&&!$('#gate').hidden&&$('#licBox').hidden;
-  if(already){if(msg){$('#gMsg').textContent=msg;$('#gMsg').className='err'}return}
+// ---- chế độ cục bộ (bản không gắn giấy phép)
+function showLocal(msg){
   lockUI();clearInterval(licPoll);
-  $('#licBox').hidden=true;$('#pwBox').hidden=false;$('#gFoot').hidden=false;
+  $('#accBox').hidden=true;$('#pwBox').hidden=false;$('#gFoot').textContent='Ứng dụng tự khoá mỗi lần đóng.';
   const setup=!AUTH.configured;
-  $('#gKey').value=AUTH.machine_key||'';
-  $('#gPw2Wrap').hidden=!setup;
+  $('#gKey').value=AUTH.machine_key||'';$('#gPw2Wrap').hidden=!setup;
   $('#gGo').textContent=setup?'Tạo mật khẩu & vào ứng dụng':'Đăng nhập';
-  $('#gHint').textContent=AUTH.reset_pending?'Admin đã cho phép đặt lại mật khẩu. Hãy tạo mật khẩu mới.'
-    :setup?`Lần đầu sử dụng: key chính là mã máy (đã tự điền). Hãy tạo mật khẩu (≥ ${AUTH.min_password||6} ký tự) — mỗi lần mở ứng dụng sẽ cần nhập.`
-    :'Nhập mật khẩu để vào ứng dụng.';
-  $('#gMsg').textContent=msg||'';$('#gMsg').className=msg?'err':'mut';
-  $('#gPw').value='';$('#gPw2').value='';
-  setTimeout(()=>$('#gPw').focus(),30);
+  $('#gHint').textContent=setup?`Lần đầu sử dụng: hãy tạo mật khẩu (≥ ${AUTH.min_password||6} ký tự) — mỗi lần mở ứng dụng sẽ cần nhập.`:'Nhập mật khẩu để vào ứng dụng.';
+  gMsg(msg,!!msg);$('#gPw').value='';$('#gPw2').value='';setTimeout(()=>$('#gPw').focus(),30);
 }
-$('#gShow').onchange=e=>['#gPw','#gPw2'].forEach(i=>$(i).type=e.target.checked?'text':'password');
+function showLogin(msg){                      // gọi khi phiên hết hạn (401)
+  if(LOCKED&&!$('#gate').hidden){if(msg)gMsg(msg,true);return}
+  AUTH.authenticated=false;routeAuth(msg);
+}
+$('#gShow').onchange=e=>['#gPw','#gPw2','#aPw','#rPw','#rPw2'].forEach(i=>$(i).type=e.target.checked?'text':'password');
+$('#gForgot').onclick=()=>gMsg('Quên mật khẩu (bản không dùng tài khoản): đóng ứng dụng, xoá file auth.json trong thư mục %USERPROFILE%\\MovieReviewEditor rồi mở lại để tạo mật khẩu mới. Dự án và dữ liệu vẫn giữ nguyên.');
 $('#gGo').onclick=async()=>{
-  const pw=$('#gPw').value,setup=!AUTH.configured,m=$('#gMsg');
-  m.className='err';
-  if(!pw){m.textContent='Hãy nhập mật khẩu.';return}
-  if(setup&&pw!==$('#gPw2').value){m.textContent='Mật khẩu nhập lại không khớp.';return}
-  const b=$('#gGo');b.disabled=true;m.className='mut';m.textContent=setup?'Đang tạo…':'Đang kiểm tra…';
-  try{
-    await send('POST',setup?'/auth/setup':'/auth/login',{security_key:$('#gKey').value,password:pw});
-    AUTH=await api('/auth/status');$('#gPw').value='';$('#gPw2').value='';m.textContent='';
-    await afterLogin();
-  }catch(e){m.className='err';m.textContent='✗ '+e.message;$('#gPw').select()}
-  b.disabled=false;
+  const pw=$('#gPw').value,setup=!AUTH.configured;
+  if(!pw)return gMsg('Hãy nhập mật khẩu.',true);
+  if(setup&&pw!==$('#gPw2').value)return gMsg('Mật khẩu nhập lại không khớp.',true);
+  const b=$('#gGo');b.disabled=true;gMsg(setup?'Đang tạo…':'Đang kiểm tra…');
+  const r=await gPost(setup?'/auth/setup':'/auth/login',{password:pw});b.disabled=false;
+  if(!r.ok){gMsg('✗ '+(r.data.detail||'Lỗi'),true);$('#gPw').select();return}
+  AUTH=await api('/auth/status');$('#gPw').value='';$('#gPw2').value='';gMsg('');await afterLogin();
 };
 async function afterLogin(){
   LOCKED=false;
@@ -337,10 +399,10 @@ function updLicChip(){
   const L=AUTH.license||{},el=$('#licChip');if(!el)return;
   if(!L.required){el.hidden=true;return}
   el.hidden=false;const d=L.days_left;
-  el.textContent=L.expires_at?`🔑 Còn ${d} ngày`:'🔑 Vĩnh viễn';el.className=(L.expires_at&&d<=7)?'warn':'';
+  el.textContent=`👤 ${AUTH.user||L.user||''} · `+(L.expires_at?`còn ${d} ngày`:'vĩnh viễn');el.className=(L.expires_at&&d<=7)?'warn':'';
   el.title=`Mã máy: ${L.machine_key}\n`+(L.expires_at?'Hết hạn: '+new Date(L.expires_at*1000).toLocaleString('vi-VN'):'Không giới hạn thời gian');
 }
-setInterval(async()=>{if(LOCKED||!entered)return;try{AUTH.license=await api('/license/status');updLicChip();if(AUTH.license.required&&!AUTH.license.valid){AUTH=await api('/auth/status');showLicense()}}catch{}},600000);
+setInterval(async()=>{if(LOCKED||!entered)return;try{AUTH.license=await api('/license/status');updLicChip();if(AUTH.license.required&&!AUTH.license.valid){AUTH=await api('/auth/status');routeAuth()}}catch{}},600000);
 
 /* ================= Thanh cấu hình máy (dưới cùng) ================= */
 let sysT=null;
@@ -707,7 +769,7 @@ function lSettings(){
   const D=S.dirs||{input_dir:'',output_dir:''};
   const dirRow=(k,label,hint)=>`<label>${label}<div class="keyrow"><input id="dir_${k}" value="${esc(D[k]||'')}" ${desk?'readonly':''} placeholder="${hint}"><button data-act="pickDir" data-k="${k}">${desk?'Chọn…':'Lưu'}</button></div></label>
    <div class="row" style="margin:2px 0 8px"><button data-act="openDir" data-k="${k==='input_dir'?'input':'output'}">📂 Mở thư mục</button></div>`;
-  const lic=!L.required?'':`<h3>Giấy phép sử dụng</h3><div class="hwgrid"><span>Mã máy</span><span><b style="font-family:Consolas,monospace">${esc(L.machine_key)}</b></span>
+  const lic=!L.required?'':`<h3>Tài khoản & giấy phép</h3><div class="hwgrid"><span>Tài khoản</span><span><b>${esc(AUTH.user||L.user||'')}</b>${L.name?' · '+esc(L.name):''}</span><span>Mã máy</span><span><b style="font-family:Consolas,monospace">${esc(L.machine_key)}</b></span>
    <span>Trạng thái</span><span class="${L.valid?'ok':'err'}">${L.valid?'Đang dùng':esc(L.message)}</span>
    <span>Hạn dùng</span><span>${L.expires_at?new Date(L.expires_at*1000).toLocaleString('vi-VN')+` (còn ${L.days_left} ngày)`:'Vĩnh viễn'}</span>
    <span>Máy chủ</span><span>${esc(L.server||'—')} ${L.server_ok===false?'<span class="err">(không kết nối được)</span>':''}</span></div>
@@ -1053,14 +1115,14 @@ const ACT={
   refreshCredits:async()=>{toast('Đang đọc số dư…');await loadCredits(true);S.storage=null;lSettings()},
   resetUsage:async el=>{if(!confirm('Đặt lại bộ đếm chi phí của nguồn này về 0?'))return;await send('POST','/credits/reset-usage',{id:el.dataset.id});loadCredits(true)},
   cleanStorage:async()=>{try{const r=await send('POST','/storage/clean',{});S.storage=r;lSettings();toast('Đã giải phóng '+(r.freed/1048576).toFixed(0)+' MB','ok');if(S.pid){await loadRenders();renderLeft()}}catch(e){toast(e.message,'err')}},
-  lock:async()=>{try{await send('POST','/auth/logout')}catch{}showLogin()},
+  lock:async()=>{try{await send('POST','/auth/logout')}catch{}try{AUTH=await api('/auth/status')}catch{}AUTH.authenticated=false;routeAuth()},
   changeAuth:async()=>{
     const t=$('#authMsg'),v=i=>$(i).value;t.className='err';
     if(!v('#aNew')||v('#aNew')!==v('#aNew2')){t.textContent='Mật khẩu mới nhập lại không khớp.';return}
     try{await send('POST','/auth/change',{old_password:v('#aOldP'),new_password:v('#aNew')});
-      ['#aOldP','#aNew','#aNew2'].forEach(i=>$(i).value='');t.className='ok';t.textContent='✓ Đã đổi mật khẩu. Lần mở sau dùng mật khẩu mới.'}
+      ['#aOldP','#aNew','#aNew2'].forEach(i=>$(i).value='');t.className='ok';t.textContent=AUTH.mode==='account'?'✓ Đã đổi mật khẩu tài khoản (áp dụng cho mọi máy).':'✓ Đã đổi mật khẩu. Lần mở sau dùng mật khẩu mới.'}
     catch(e){t.textContent='✗ '+e.message}},
-  openLicense:()=>{S.menu='settings';S.connForm=null;renderMenu();renderLeft();setTimeout(()=>{const h=$('#lbody h3:nth-of-type(1)');const x=[...document.querySelectorAll('#lbody h3')].find(e=>e.textContent.startsWith('Giấy phép'));if(x)x.scrollIntoView()},30)},
+  openLicense:()=>{S.menu='settings';S.connForm=null;renderMenu();renderLeft();setTimeout(()=>{const h=$('#lbody h3:nth-of-type(1)');const x=[...document.querySelectorAll('#lbody h3')].find(e=>/^Tài khoản/i.test(e.textContent));if(x)x.scrollIntoView()},30)},
   licSync:async()=>{try{AUTH.license=await send('POST','/license/check');updLicChip();lSettings();toast(AUTH.license.server_ok===false?AUTH.license.server_msg:'Đã kiểm tra với máy chủ Admin',AUTH.license.server_ok===false?'err':'ok')}catch(e){toast(e.message,'err')}},
   openPerf:()=>{S.menu='settings';S.connForm=null;renderMenu();renderLeft();setTimeout(()=>{const h=$('#perfH');if(h)h.scrollIntoView()},30)},
   rescanHw:async()=>{toast('Đang quét cấu hình máy…');try{S.hw=await api('/system/hardware?force=1');lSettings();drawSys()}catch(e){toast(e.message,'err')}},

@@ -1,7 +1,10 @@
-"""Giấy phép sử dụng theo MÃ MÁY, do tool Admin cấp.
+"""Giấy phép theo TÀI KHOẢN + MÁY, do tool Admin cấp.
 
-- Mã máy: tính từ phần cứng (UUID mainboard, serial bo mạch, mã CPU) -> không đổi kể cả khi cài lại Windows.
-- Lần đầu mở app: tự gửi mã máy về máy chủ của Admin (đăng ký). Admin đặt hạn dùng trong tool Admin.
+- Người dùng ĐĂNG KÝ tài khoản (tên đăng nhập + mật khẩu) trong app -> yêu cầu gửi lên máy chủ Admin.
+- Admin duyệt, đặt hạn dùng và gửi MÃ KÍCH HOẠT (XXXX-XXXX) -> người dùng nhập vào app -> máy này được kích hoạt.
+- Máy đã kích hoạt: đăng nhập không cần mạng. Đăng nhập tài khoản trên MÁY KHÁC -> tự gửi yêu cầu kích hoạt máy mới.
+- Mã máy: tính từ phần cứng (UUID mainboard, serial bo mạch, mã CPU) -> cài lại Windows trên cùng máy vẫn cùng mã:
+  đăng nhập lại là dùng tiếp, không cần mã kích hoạt mới.
 - Giấy phép là chuỗi có CHỮ KÝ SỐ Ed25519 của Admin: app kiểm tra được khi không có mạng, không sửa được hạn dùng.
   App chỉ chứa khoá công khai (build_info.LICENSE_PUBKEY); khoá bí mật chỉ nằm ở máy Admin.
 - Đồng bộ với máy chủ lúc mở app và mỗi 30 phút (gia hạn / khoá máy / cho đặt lại mật khẩu có hiệu lực ngay).
@@ -144,55 +147,81 @@ def _save(d: dict):
     _file().write_text(json.dumps(d), "utf-8")
 
 
+def _update(**kw):
+    with _lock:
+        d = _load()
+        d.update(kw)
+        _save(d)
+
+
+def norm_user(u: str | None) -> str:
+    return (u or "").strip().lower()
+
+
+def prehash(username: str, password: str) -> str:
+    """Mật khẩu được băm trước khi gửi đi (máy chủ không bao giờ thấy mật khẩu thật). Giống hệt bên tool Admin."""
+    return hashlib.pbkdf2_hmac("sha256", (password or "").encode("utf-8"), ("MRE-ACC|" + norm_user(username)).encode(),
+                               100_000).hex()
+
+
 def store_token(token: str) -> dict:
-    """Lưu giấy phép mới nếu hợp lệ và không cũ hơn giấy phép đang có (chống dùng lại bản cũ)."""
+    """Lưu giấy phép nếu hợp lệ và không cũ hơn giấy phép đang có (chống dán lại bản cũ)."""
     p = verify_token(token)
     if p is None:
         raise ValueError("Mã kích hoạt không hợp lệ hoặc không phải của máy này")
     with _lock:
         d = _load()
         cur = verify_token(d.get("token", "")) if d.get("token") else None
-        if cur and int(cur.get("iat", 0)) > int(p.get("iat", 0)):
+        if cur and norm_user(cur.get("u")) == norm_user(p.get("u")) and int(cur.get("iat", 0)) > int(p.get("iat", 0)):
             return cur
         d["token"] = token.strip()
         d["seen"] = max(float(d.get("seen", 0)), float(p.get("iat", 0)), time.time())
+        if p.get("u"):
+            d["user"] = norm_user(p["u"])
+            if p.get("st") == "active":
+                d.pop("pending_user", None)
         _save(d)
+    _valid_cache["t"] = 0
     return p
 
 
 def _now_checked(d: dict, p: dict | None) -> tuple[float, bool]:
-    """Thời gian hiện tại + cờ 'đồng hồ bị lùi' (so với lần cuối app thấy / thời điểm cấp giấy phép)."""
     now = time.time()
     floor = max(float(d.get("seen", 0)), float((p or {}).get("iat", 0)))
     return now, now + CLOCK_SLACK < floor
 
 
+MESSAGES = {
+    "unregistered": "Chưa có tài khoản trên máy này. Đăng ký tài khoản mới, hoặc đăng nhập nếu đã có.",
+    "pending": "Đã gửi yêu cầu kích hoạt cho Admin. Khi Admin gửi mã kích hoạt, hãy nhập vào ô bên dưới.",
+    "blocked": "Tài khoản đã bị Admin khoá. Liên hệ Admin.",
+    "revoked": "Tài khoản đã được đăng nhập và kích hoạt trên máy khác. Đăng nhập lại để gửi yêu cầu kích hoạt máy này.",
+    "expired": "Tài khoản đã hết hạn sử dụng. Liên hệ Admin để gia hạn.",
+    "clock": "Đồng hồ máy tính đang bị chỉnh lùi. Hãy đặt lại ngày giờ đúng.",
+}
+
+
 def state() -> dict:
-    """Tình trạng giấy phép cho giao diện và middleware."""
-    base = {"required": required(), "machine_key": machine_key(), "server": server_url(),
-            "server_ok": _status["server_ok"], "server_msg": _status["server_msg"], "name": _load().get("name", "")}
+    d = _load()
+    base = {"required": required(), "machine_key": machine_key(), "server": server_url(), "server_ok": _status["server_ok"],
+            "server_msg": _status["server_msg"], "user": d.get("user", ""), "pending_user": d.get("pending_user", "")}
     if not base["required"]:
         return {**base, "valid": True, "status": "free", "message": ""}
-    d = _load()
     p = verify_token(d.get("token", "")) if d.get("token") else None
-    now, rolled = _now_checked(d, p)
     if p is None:
-        return {**base, "valid": False, "status": "unregistered" if not d.get("registered") else "pending",
-                "message": "Máy này chưa được kích hoạt. Đã gửi mã máy cho Admin — chờ Admin duyệt, hoặc dán mã kích hoạt."
-                if d.get("registered") else "Máy này chưa đăng ký sử dụng. Bấm “Gửi yêu cầu kích hoạt”."}
+        st = "pending" if d.get("pending_user") else "unregistered"
+        return {**base, "valid": False, "status": st, "message": MESSAGES[st]}
+    now, rolled = _now_checked(d, p)
     st, exp = p.get("st"), int(p.get("exp") or 0)
-    out = {**base, "status": st, "expires_at": exp, "issued_at": p.get("iat"), "reset_pw": int(p.get("rp") or 0),
-           "days_left": None if not exp else max(0, int((exp - now) // 86400)), "note": p.get("msg", "")}
+    out = {**base, "user": norm_user(p.get("u")) or base["user"], "status": st, "expires_at": exp, "issued_at": p.get("iat"),
+           "days_left": None if not exp else max(0, -int(-(exp - now) // 86400)), "name": p.get("nm", "")}
     if rolled:
-        return {**out, "valid": False, "status": "clock", "message": "Đồng hồ máy tính đang bị chỉnh lùi. Hãy đặt lại ngày giờ đúng."}
-    if st == "blocked":
-        return {**out, "valid": False, "message": "Máy này đã bị Admin khoá. Liên hệ Admin."}
-    if st == "pending":
-        return {**out, "valid": False, "message": "Đã gửi yêu cầu — đang chờ Admin kích hoạt và đặt hạn dùng."}
+        st = "clock"
+    elif st == "active" and exp and now >= exp:
+        st = "expired"
     if st != "active":
-        return {**out, "valid": False, "message": "Giấy phép không hợp lệ."}
-    if exp and now >= exp:
-        return {**out, "valid": False, "status": "expired", "message": "Đã hết hạn sử dụng. Liên hệ Admin để gia hạn."}
+        st = st if st in MESSAGES else "pending"
+        return {**out, "valid": False, "status": st, "message": MESSAGES[st]}
     return {**out, "valid": True, "message": ""}
 
 
@@ -200,7 +229,6 @@ _valid_cache = {"t": 0.0, "v": False}
 
 
 def is_valid() -> bool:
-    """Kiểm tra nhanh cho middleware (nhớ 5 giây)."""
     if not required():
         return True
     if time.time() - _valid_cache["t"] > 5:
@@ -209,35 +237,46 @@ def is_valid() -> bool:
 
 
 def touch_clock():
-    """Ghi lại thời điểm lớn nhất app từng thấy (phục vụ chống lùi đồng hồ)."""
     if not required():
         return
     with _lock:
         d = _load()
-        now = time.time()
-        if now > float(d.get("seen", 0)):
-            d["seen"] = now
+        if time.time() > float(d.get("seen", 0)):
+            d["seen"] = time.time()
             _save(d)
 
 
 # ------------------------------------------------------------------ máy chủ Admin
-def _post(path: str, body: dict, timeout: float = 12) -> dict:
+class ServerError(RuntimeError):
+    def __init__(self, msg: str, status: int = 0):
+        super().__init__(msg)
+        self.status = status          # 0 = không kết nối được
+
+
+def _post(path: str, body: dict, timeout: float = 15) -> dict:
     url = server_url()
     if not url:
-        raise RuntimeError("Bản này chưa có địa chỉ máy chủ Admin — hãy nhập địa chỉ, hoặc dán mã kích hoạt.")
+        raise ServerError("Bản này chưa có địa chỉ máy chủ Admin — nhập ở mục “Địa chỉ máy chủ Admin”.")
     req = urllib.request.Request(url + path, data=json.dumps(body).encode(), method="POST",
-                                 headers={"Content-Type": "application/json", "User-Agent": f"MovieReviewEditor/{__version__}"})
+                                 headers={"Content-Type": "application/json", "User-Agent": f"MovieReviewEditor/{__version__}",
+                                          "ngrok-skip-browser-warning": "1"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode("utf-8", "replace"))
+            out = json.loads(r.read().decode("utf-8", "replace"))
+        _status.update(server_ok=True, server_msg="")
+        return out
     except urllib.error.HTTPError as e:
         try:
             msg = json.loads(e.read().decode("utf-8", "replace")).get("detail")
         except Exception:
             msg = None
-        raise RuntimeError(msg or f"Máy chủ Admin trả lỗi {e.code}") from e
-    except (urllib.error.URLError, OSError) as e:
-        raise RuntimeError("Không kết nối được máy chủ Admin (máy Admin đang tắt hoặc sai địa chỉ).") from e
+        _status.update(server_ok=True, server_msg="")
+        if isinstance(msg, list):                 # lỗi kiểm tra dữ liệu của FastAPI
+            msg = "Dữ liệu gửi lên không hợp lệ"
+        raise ServerError(msg or f"Máy chủ Admin trả lỗi {e.code}", e.code) from e
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        _status.update(server_ok=False, server_msg="Không kết nối được máy chủ Admin (máy Admin đang tắt hoặc sai địa chỉ).")
+        raise ServerError(_status["server_msg"]) from e
 
 
 def _device_info() -> dict:
@@ -247,65 +286,75 @@ def _device_info() -> dict:
         summary = f"{hw.get('cpu', '')} · RAM {hw.get('ram_gb', '?')} GB · " + ", ".join(g["name"] for g in hw.get("gpus", []))
     except Exception:
         summary = ""
-    return {"mk": machine_key(), "host": socket.gethostname(), "os": f"{platform.system()} {platform.release()}",
+    return {"mk": machine_key(), "host": socket.gethostname()[:80], "os": f"{platform.system()} {platform.release()}"[:80],
             "ver": __version__, "hw": summary[:300]}
 
 
-def _accept(resp: dict) -> None:
+def _accept(resp: dict) -> dict:
     tok = resp.get("token")
-    if tok:
-        p = store_token(tok)
-        srv = float(resp.get("server_time") or 0)
-        if srv:                                     # đồng hồ thật của máy chủ cũng làm mốc chống lùi giờ
-            with _lock:
-                d = _load()
-                d["seen"] = max(float(d.get("seen", 0)), srv)
-                _save(d)
-        _status.update(server_ok=True, server_msg="")
-        _valid_cache["t"] = 0
-        log.info("Giấy phép: %s, hết hạn %s", p.get("st"), p.get("exp"))
-
-
-def register(name: str = "") -> dict:
-    """Gửi mã máy (+ tên người dùng) về máy chủ Admin. Gọi tự động lần đầu và khi người dùng bấm gửi."""
-    with _lock:
-        d = _load()
-        if name.strip():
-            d["name"] = name.strip()[:80]
-        _save(d)
-    try:
-        resp = _post("/api/v1/register", {**_device_info(), "name": d.get("name", "")})
+    p = store_token(tok) if tok else {}
+    srv = float(resp.get("server_time") or 0)
+    if srv:
         with _lock:
             d = _load()
-            d["registered"] = True
+            d["seen"] = max(float(d.get("seen", 0)), srv)
             _save(d)
-        _accept(resp)
-    except RuntimeError as e:
-        _status.update(server_ok=False, server_msg=str(e))
-        raise
+    return p
+
+
+def register(username: str, password: str, name: str = "", phone: str = "") -> dict:
+    u = norm_user(username)
+    resp = _post("/api/v1/register", {**_device_info(), "username": u, "pre": prehash(u, password), "name": name.strip()[:80],
+                                      "phone": phone.strip()[:30]})
+    _update(user=u, pending_user=u)
+    _accept(resp)
+    return {**state(), "server_message": resp.get("message", "")}
+
+
+def login_online(username: str, password: str) -> dict:
+    """Đăng nhập qua máy chủ. Máy chưa kích hoạt cho tài khoản này -> máy chủ tạo yêu cầu kích hoạt (chờ Admin)."""
+    u = norm_user(username)
+    resp = _post("/api/v1/login", {**_device_info(), "username": u, "pre": prehash(u, password)})
+    _update(user=u)
+    if resp.get("state") != "active":
+        _update(pending_user=u)
+    _accept(resp)
+    return {**state(), "server_state": resp.get("state"), "server_message": resp.get("message", "")}
+
+
+def activate(code: str) -> dict:
+    """Mã ngắn XXXX-XXXX (Admin gửi) -> kích hoạt qua máy chủ. Chuỗi dài có dấu chấm -> mã offline đã ký."""
+    code = (code or "").strip()
+    if "." in code and len(code) > 40:
+        store_token(code)
+        return state()
+    d = _load()
+    u = d.get("pending_user") or d.get("user")
+    if not u:
+        raise ServerError("Hãy đăng ký hoặc đăng nhập trước, rồi mới nhập mã kích hoạt.", 400)
+    resp = _post("/api/v1/activate", {**_device_info(), "username": u, "code": code})
+    _accept(resp)
     return state()
+
+
+def change_password(username: str, old: str, new: str) -> None:
+    u = norm_user(username)
+    _post("/api/v1/password", {"username": u, "old_pre": prehash(u, old), "new_pre": prehash(u, new)})
 
 
 def sync() -> dict:
     if not required():
         return state()
+    d = _load()
+    u = d.get("user") or d.get("pending_user")
     try:
-        d = _load()
-        if not d.get("registered") and not d.get("token"):
-            return register()
-        resp = _post("/api/v1/check", {**_device_info(), "name": d.get("name", "")})
-        _accept(resp)
-    except RuntimeError as e:
-        _status.update(server_ok=False, server_msg=str(e))
+        if u:
+            _accept(_post("/api/v1/check", {**_device_info(), "username": u}))
+    except ServerError:
+        pass
     finally:
         _status["last_sync"] = time.time()
         touch_clock()
-    return state()
-
-
-def activate(code: str) -> dict:
-    store_token(code)
-    _valid_cache["t"] = 0
     return state()
 
 
@@ -318,7 +367,7 @@ def start_background():
         return
 
     def loop():
-        machine_key()                       # tính mã máy sớm (PowerShell ~1 giây)
+        machine_key()
         while True:
             try:
                 sync()

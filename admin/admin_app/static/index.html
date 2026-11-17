@@ -27,6 +27,10 @@ tr.new td{background:#a371f714}.pill{border-radius:99px;padding:2px 8px;font-siz
 #toast .er{border-left-color:var(--er)}#toast .ok{border-left-color:var(--ok)}
 dialog{background:var(--p);color:var(--tx);border:1px solid var(--bd);border-radius:12px;width:min(520px,92vw)}dialog::backdrop{background:#000a}
 small{color:var(--mut)}
+.reqs{display:grid;gap:8px}.req{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;background:#a371f714;border:1px solid #a371f760;border-radius:10px;padding:10px 12px}
+.devs{display:grid;gap:6px}.dev{border:1px solid var(--bd);border-radius:8px;padding:6px 8px;display:grid;gap:3px}.dev .acts{margin-top:2px}
+.code{font:700 26px ui-monospace,Consolas,monospace;letter-spacing:.2em;text-align:center;padding:10px;border:1px dashed var(--vi);border-radius:8px;color:var(--vi)}
+textarea{width:100%;font:inherit;color:inherit;background:var(--p2);border:1px solid var(--bd);border-radius:6px;padding:8px}
 </style></head>
 <body>
 <div id="gate" hidden><div class="box"><h2 style="margin:0">🛡 Admin — Movie Review Editor</h2><p id="gHint" class="mut"></p>
@@ -43,17 +47,19 @@ small{color:var(--mut)}
    <small>Đặt 2 giá trị này ở GitHub repo → Settings → Secrets and variables → Actions → <b>Variables</b> rồi build lại app.</small></div>
   <div class="card"><h3>Cài đặt</h3>
    <label>Địa chỉ công khai (nếu dùng tên miền / tunnel)<input id="pubUrl" placeholder="vd: https://license.tenmien.com"></label>
-   <label>Dùng thử tự động cho máy mới (ngày, 0 = phải chờ Admin duyệt)<input id="trial" type="number" min="0" max="3650"></label>
+   <label>Dùng thử khi đăng ký (ngày, 0 = phải chờ Admin duyệt + gửi mã)<input id="trial" type="number" min="0" max="3650"></label>
+   <label>Số máy tối đa cho mỗi tài khoản mới<input id="maxdev" type="number" min="1" max="50"></label>
    <button id="saveSet">Lưu cài đặt</button></div>
   <div class="card"><h3>Sao lưu khoá ký (QUAN TRỌNG)</h3>
    <small>Mất khoá này thì phải build lại app cho mọi máy. Hãy tải về và cất ở nơi an toàn (USB, Google Drive riêng).</small>
    <div class="row"><button id="exportKey">⬇ Tải file khoá</button><button id="importKey">⬆ Khôi phục khoá…</button></div>
    <input type="file" id="keyFile" accept=".json" hidden><small id="dataDir"></small></div>
  </div>
- <div class="tools"><b id="count"></b><input id="q" placeholder="Tìm mã máy, tên, tên máy tính…">
+ <div class="card" id="reqCard" hidden><h3>🔔 Yêu cầu chờ xử lý</h3><div class="reqs" id="reqs"></div></div>
+ <div class="tools"><b id="count"></b><input id="q" placeholder="Tìm tên đăng nhập, họ tên, SĐT, mã máy…">
   <select id="filter"><option value="">Tất cả</option><option value="pending">Chờ duyệt</option><option value="active">Đang dùng</option><option value="expiring">Sắp hết hạn (≤7 ngày)</option><option value="expired">Hết hạn</option><option value="blocked">Bị khoá</option></select>
-  <button id="addDev">+ Thêm máy bằng mã</button></div>
- <table><thead><tr><th>Máy</th><th>Người dùng</th><th>Trạng thái</th><th>Hạn dùng</th><th>Lần cuối online</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table>
+  <button id="addAcc">+ Tạo tài khoản</button></div>
+ <table><thead><tr><th>Tài khoản</th><th>Trạng thái</th><th>Hạn dùng</th><th>Máy đang dùng</th><th>Thao tác</th></tr></thead><tbody id="rows"></tbody></table>
 </div></div>
 
 <dialog id="dlg"><form method="dialog" id="dlgBody"></form></dialog>
@@ -78,58 +84,84 @@ $('#logout').onclick=async()=>{await post('/admin/api/logout');showGate()};
 const fmtDate=t=>t?new Date(t*1000).toLocaleString('vi-VN',{dateStyle:'short',timeStyle:'short'}):'—';
 function ago(t){if(!t)return 'chưa';const s=Date.now()/1000-t;if(s<90)return 'vừa xong';if(s<3600)return Math.round(s/60)+' phút trước';if(s<86400)return Math.round(s/3600)+' giờ trước';return Math.round(s/86400)+' ngày trước'}
 const ST={pending:['Chờ duyệt','vi'],active:['Đang dùng','ok'],expired:['Hết hạn','er'],blocked:['Bị khoá','er']};
-function expText(d){if(d.status==='pending')return '<span class="mut">—</span>';if(!d.exp)return '<b class="ok">Vĩnh viễn</b>';
-  const cls=d.days_left<=0?'er':d.days_left<=7?'wa':'';return `<span class="${cls}">${fmtDate(d.exp)}<br><small>${d.days_left<=0?'đã hết':'còn '+Math.ceil(d.days_left)+' ngày'}</small></span>`}
+const DST={pending:['chờ kích hoạt','vi'],active:['đang dùng','ok'],revoked:['đã thu hồi','mut']};
+function expText(a){if(a.status==='pending')return '<span class="mut">—</span>';if(!a.exp)return '<b class="ok">Vĩnh viễn</b>';
+  const cls=a.days_left<=0?'er':a.days_left<=7?'wa':'';return `<span class="${cls}">${fmtDate(a.exp)}<br><small>${a.days_left<=0?'đã hết':'còn '+Math.ceil(a.days_left)+' ngày'}</small></span>`}
+const U=u=>encodeURIComponent(u);
+function devHtml(a,d){const [lb,c]=DST[d.status]||[d.status,''];return `<div class="dev"><div><span class="dot ${d.online?'on':''}"></span><b>${esc(d.host||'(máy)')}</b> <span class="pill ${c}">${lb}</span>${d.code_valid?` <span class="pill vi" title="Mã chưa được nhập">mã ${esc(d.code)}</span>`:''}</div>
+  <small>${esc(d.mk)} · ${esc(d.os)} · v${esc(d.ver)} · ${ago(d.last_seen)} · ${esc(d.ip)}</small>${d.hw?`<small>${esc(d.hw)}</small>`:''}
+  <div class="acts">${d.status!=='active'?`<button class="s p" data-d="approve" data-u="${esc(a.username)}" data-mk="${d.mk}">${a.status==='pending'?'✓ Duyệt & tạo mã…':'🔑 Tạo mã kích hoạt'}</button>`:''}
+   ${d.status==='active'?`<button class="s" data-d="revoke" data-u="${esc(a.username)}" data-mk="${d.mk}">Thu hồi</button>`:''}
+   ${a.status!=='pending'&&d.status!=='active'?`<button class="s" data-d="offline" data-u="${esc(a.username)}" data-mk="${d.mk}" title="Khi máy người dùng không vào được máy chủ">Mã offline</button>`:''}
+   <button class="s d" data-d="delete" data-u="${esc(a.username)}" data-mk="${d.mk}">Xoá máy</button></div></div>`}
 function render(){
   const q=$('#q').value.trim().toLowerCase(),f=$('#filter').value;
-  const list=D.filter(d=>(!q||[d.mk,d.name,d.host,d.note,d.ip].join(' ').toLowerCase().includes(q))&&
-    (!f||(f==='expiring'?d.effective==='active'&&d.exp&&d.days_left<=7:d.effective===f)));
-  $('#count').textContent=`${D.length} máy · ${D.filter(d=>d.status==='pending').length} chờ duyệt`;
-  $('#rows').innerHTML=list.map(d=>{const [lb,c]=ST[d.effective]||[d.effective,''];return `<tr class="${d.seen_new?'new':''}">
-   <td><b>${esc(d.mk)}</b> <button class="s" data-copytext="${esc(d.mk)}" title="Sao chép">⧉</button><br><small>${esc(d.host)} · ${esc(d.os)} · v${esc(d.ver)}</small><br><small>${esc(d.hw)}</small></td>
-   <td>${esc(d.name)||'<span class="mut">(chưa ghi tên)</span>'} <button class="s" data-a="rename" data-mk="${d.mk}">✎</button>${d.note?`<br><small>📝 ${esc(d.note)}</small>`:''}<br><button class="s" data-a="note" data-mk="${d.mk}">Ghi chú</button></td>
-   <td><span class="pill ${c}">${lb}</span>${d.seen_new?' <span class="pill vi">MỚI</span>':''}${d.rp?`<br><small>đã cho đặt lại mật khẩu ×${d.rp}</small>`:''}</td>
-   <td>${expText(d)}</td>
-   <td><span class="dot ${d.online?'on':''}"></span>${ago(d.last_seen)}<br><small>${esc(d.ip)}</small></td>
-   <td><div class="acts">${d.status==='pending'?`<button class="s p" data-a="approve" data-mk="${d.mk}">✓ Duyệt…</button>`:''}
-    <button class="s" data-a="extend" data-days="7" data-mk="${d.mk}">+7 ngày</button><button class="s" data-a="extend" data-days="30" data-mk="${d.mk}">+30</button>
-    <button class="s" data-a="extend" data-days="90" data-mk="${d.mk}">+90</button><button class="s" data-a="extend" data-days="365" data-mk="${d.mk}">+1 năm</button>
-    <button class="s" data-a="date" data-mk="${d.mk}">Đặt ngày…</button><button class="s" data-a="lifetime" data-mk="${d.mk}">Vĩnh viễn</button>
-    ${d.status==='blocked'?`<button class="s" data-a="unblock" data-mk="${d.mk}">Mở khoá</button>`:`<button class="s d" data-a="block" data-mk="${d.mk}">Khoá</button>`}
-    <button class="s" data-a="reset_pw" data-mk="${d.mk}" title="Người dùng quên mật khẩu">Đặt lại MK</button>
-    <button class="s" data-a="code" data-mk="${d.mk}" title="Khi máy họ không vào được máy chủ">Mã kích hoạt</button>
-    <button class="s d" data-a="delete" data-mk="${d.mk}">Xoá</button></div></td></tr>`}).join('')||'<tr><td colspan="6" class="mut">Chưa có máy nào. Khi người dùng mở app lần đầu, mã máy sẽ tự hiện ở đây.</td></tr>';
+  const reqs=[];D.forEach(a=>a.devices.forEach(d=>{if(d.status==='pending')reqs.push([a,d])}));
+  $('#reqCard').hidden=!reqs.length;
+  $('#reqs').innerHTML=reqs.map(([a,d])=>`<div class="req"><div><b>${esc(a.username)}</b> — ${esc(a.name)||'<span class="mut">(chưa ghi tên)</span>'} ${a.phone?'· 📞 '+esc(a.phone):''}<br>
+    <small>${a.status==='pending'||Math.abs((d.first_seen||0)-(a.created||0))<120?'Đăng ký tài khoản mới':'Đăng nhập trên máy mới'} · ${esc(d.host)} · ${esc(d.mk)} · ${ago(d.first_seen)}${d.code_valid?` · <b class="vi">đã tạo mã ${esc(d.code)}, chờ người dùng nhập</b>`:''}</small></div>
+    <div class="acts"><button class="p" data-d="approve" data-u="${esc(a.username)}" data-mk="${d.mk}">${a.status==='pending'?'✓ Duyệt & tạo mã…':'🔑 Tạo mã kích hoạt'}</button><button class="s d" data-d="delete" data-u="${esc(a.username)}" data-mk="${d.mk}">Từ chối</button></div></div>`).join('');
+  const list=D.filter(a=>(!q||[a.username,a.name,a.phone,a.note,...a.devices.map(d=>d.mk+' '+d.host)].join(' ').toLowerCase().includes(q))&&
+    (!f||(f==='expiring'?a.effective==='active'&&a.exp&&a.days_left<=7:a.effective===f)));
+  $('#count').textContent=`${D.length} tài khoản · ${reqs.length} yêu cầu chờ`;
+  $('#rows').innerHTML=list.map(a=>{const [lb,c]=ST[a.effective]||[a.effective,''];const act=a.devices.filter(d=>d.status==='active').length;return `<tr class="${a.is_new?'new':''}">
+   <td><b>${esc(a.username)}</b><br>${esc(a.name)||'<span class="mut">(chưa ghi tên)</span>'} <button class="s" data-a="name" data-u="${esc(a.username)}">✎</button>${a.phone?`<br><small>📞 ${esc(a.phone)}</small>`:''}${a.note?`<br><small>📝 ${esc(a.note)}</small>`:''}
+     <br><small>Tạo ${fmtDate(a.created)} · đăng nhập ${ago(a.last_login)}</small></td>
+   <td><span class="pill ${c}">${lb}</span><br><small>${act}/${a.max_devices} máy</small></td>
+   <td>${expText(a)}</td>
+   <td><div class="devs">${a.devices.map(d=>devHtml(a,d)).join('')||'<small>chưa có máy</small>'}</div></td>
+   <td><div class="acts">${a.status!=='pending'?`<button class="s" data-a="extend" data-days="7" data-u="${esc(a.username)}">+7 ngày</button><button class="s" data-a="extend" data-days="30" data-u="${esc(a.username)}">+30</button>
+    <button class="s" data-a="extend" data-days="90" data-u="${esc(a.username)}">+90</button><button class="s" data-a="extend" data-days="365" data-u="${esc(a.username)}">+1 năm</button>
+    <button class="s" data-a="date" data-u="${esc(a.username)}">Đặt ngày…</button><button class="s" data-a="lifetime" data-u="${esc(a.username)}">Vĩnh viễn</button>`:'<small class="vi">Duyệt ở mục “Yêu cầu chờ xử lý”</small>'}
+    ${a.status==='blocked'?`<button class="s" data-a="unblock" data-u="${esc(a.username)}">Mở khoá</button>`:`<button class="s d" data-a="block" data-u="${esc(a.username)}">Khoá</button>`}
+    <button class="s" data-a="password" data-u="${esc(a.username)}" title="Người dùng quên mật khẩu">Đặt mật khẩu mới</button>
+    <button class="s" data-a="max_devices" data-u="${esc(a.username)}">Số máy: ${a.max_devices}</button>
+    <button class="s" data-a="note" data-u="${esc(a.username)}">Ghi chú</button>
+    <button class="s d" data-a="delete" data-u="${esc(a.username)}">Xoá TK</button></div></td></tr>`}).join('')||'<tr><td colspan="5" class="mut">Chưa có tài khoản nào. Người dùng bấm “Đăng ký” trong app thì yêu cầu sẽ hiện ở đây.</td></tr>';
 }
-async function load(){try{const r=await api('/admin/api/devices');D=r.devices;
-  if(lastNew>=0&&r.new>lastNew)toast(`🔔 Có ${r.new-lastNew} máy mới đăng ký`,'ok');lastNew=r.new;
-  document.title=(r.pending?`(${r.pending}) `:'')+'Admin — Movie Review Editor';render()}catch{}}
+async function load(){try{const r=await api('/admin/api/accounts');D=r.accounts;
+  if(lastNew>=0&&r.requests>lastNew)toast(`🔔 Có ${r.requests-lastNew} yêu cầu kích hoạt mới`,'ok');lastNew=r.requests;
+  document.title=(r.requests?`(${r.requests}) `:'')+'Admin — Movie Review Editor';render()}catch{}}
+function codeDialog(a,code,exp){
+  const msg=`Mã kích hoạt Movie Review Editor của bạn (tài khoản ${a.username}): ${code}\nMở app → nhập mã vào ô “Mã kích hoạt” → bấm Kích hoạt. Mã dùng 1 lần, hết hạn ${fmtDate(exp)}.`;
+  return ask('Mã kích hoạt cho '+esc(a.username),`<div class="code">${esc(code)}</div><small>Gửi cho người dùng qua Zalo / SMS${a.phone?' ('+esc(a.phone)+')':''}. Mã chỉ dùng cho đúng máy đã gửi yêu cầu.</small>
+   <textarea rows="4" readonly style="margin-top:8px">${esc(msg)}</textarea><div class="row" style="margin-top:6px"><button type="button" class="s" data-copytext="${esc(code)}">⧉ Sao chép mã</button><button type="button" class="s" data-copytext="${esc(msg)}">⧉ Sao chép tin nhắn</button></div>`)}
+document.addEventListener('click',async e=>{
+  const c=e.target.closest('[data-copy],[data-copytext]');if(c){navigator.clipboard.writeText(c.dataset.copytext||$('#'+c.dataset.copy).textContent);toast('Đã sao chép','ok');return}
+  const dv=e.target.closest('[data-d]');
+  if(dv){const u=dv.dataset.u,mk=dv.dataset.mk,a=D.find(x=>x.username===u),d=dv.dataset.d,url=`/admin/api/accounts/${U(u)}/devices/${mk}`;
+   try{
+    if(d==='approve'){let days=null;
+      if(a.status==='pending'){const r=await ask('Duyệt tài khoản '+esc(u),`<label>Số ngày được dùng<input name="days" type="number" min="1" value="30"></label><small>Muốn vĩnh viễn: duyệt xong bấm “Vĩnh viễn”.</small>`);if(!r)return;days=+r.days}
+      const r=await post(url,{action:'approve',days});await load();await codeDialog(a,r.code,r.code_exp)}
+    else if(d==='revoke'){if(!confirm('Thu hồi máy này? Người dùng phải kích hoạt lại nếu muốn dùng tiếp trên máy đó.'))return;await post(url,{action:'revoke'})}
+    else if(d==='delete'){if(!confirm('Xoá / từ chối máy này?'))return;await post(url,{action:'delete'})}
+    else if(d==='offline'){const r=await api(url+'/offline');await load();await ask('Mã kích hoạt OFFLINE cho '+esc(u),`<small>Dùng khi máy người dùng không vào được máy chủ. Gửi cả chuỗi dưới đây, người dùng dán vào ô “Mã kích hoạt”. Máy này được kích hoạt ngay.</small><textarea rows="5" readonly style="margin-top:8px" onclick="this.select()">${esc(r.code)}</textarea>`);return}
+    toast('Đã cập nhật','ok');load()}catch(err){toast(err.message,'er')}return}
+  const b=e.target.closest('[data-a]');if(!b)return;const u=b.dataset.u,a=D.find(x=>x.username===u),act=x=>post(`/admin/api/accounts/${U(u)}`,x);
+  try{
+   if(b.dataset.a==='extend')await act({action:'extend',days:+b.dataset.days});
+   else if(b.dataset.a==='date'){const r=await ask('Đặt ngày hết hạn',`<input name="d" type="datetime-local">`);if(!r||!r.d)return;await act({action:'set_date',date:new Date(r.d).getTime()/1000})}
+   else if(b.dataset.a==='lifetime'){if(!confirm('Cho tài khoản này dùng vĩnh viễn?'))return;await act({action:'lifetime'})}
+   else if(b.dataset.a==='block'){if(!confirm('Khoá tài khoản '+u+'? App sẽ ngừng hoạt động ở lần đồng bộ tới (≤ 30 phút) hoặc lần đăng nhập tới.'))return;await act({action:'block'})}
+   else if(b.dataset.a==='unblock')await act({action:'unblock'});
+   else if(b.dataset.a==='password'){const r=await ask('Đặt mật khẩu mới cho '+esc(u),`<label>Mật khẩu mới (≥ 6 ký tự)<input name="t"></label><small>Gửi mật khẩu này cho người dùng; họ đăng nhập rồi tự đổi lại trong ⚙ Cài đặt.</small>`);if(!r)return;await act({action:'password',text:r.t})}
+   else if(b.dataset.a==='max_devices'){const r=await ask('Số máy dùng cùng lúc',`<input name="n" type="number" min="1" max="50" value="${a.max_devices}"><small>Kích hoạt máy mới khi đã đủ số máy → máy cũ nhất tự bị thu hồi.</small>`);if(!r)return;await act({action:'max_devices',number:+r.n})}
+   else if(b.dataset.a==='name'||b.dataset.a==='note'){const r=await ask(b.dataset.a==='name'?'Họ tên':'Ghi chú',`<input name="t" value="${esc(b.dataset.a==='name'?a.name:a.note)}">`);if(!r)return;await act({action:b.dataset.a,text:r.t})}
+   else if(b.dataset.a==='delete'){if(!confirm('XOÁ tài khoản '+u+' và mọi máy của nó?'))return;await api(`/admin/api/accounts/${U(u)}`,{method:'DELETE'})}
+   toast('Đã cập nhật','ok');load()}catch(err){toast(err.message,'er')}
+});
+$('#q').oninput=render;$('#filter').onchange=render;
+$('#addAcc').onclick=async()=>{const r=await ask('Tạo tài khoản cho người dùng',`<label>Tên đăng nhập<input name="u"></label><label>Mật khẩu (≥ 6 ký tự)<input name="p"></label><label>Họ tên<input name="n"></label><label>SĐT<input name="ph"></label><label>Số ngày (để trống = vĩnh viễn)<input name="d" type="number" min="1"></label><small>Người dùng chỉ cần bấm Đăng nhập trong app → yêu cầu kích hoạt máy sẽ hiện ở đây để bạn tạo mã.</small>`);
+  if(!r)return;try{await post('/admin/api/accounts',{username:r.u,password:r.p,name:r.n,phone:r.ph,days:r.d?+r.d:null});toast('Đã tạo tài khoản','ok');load()}catch(e){toast(e.message,'er')}};
 async function loadInfo(){INFO=await api('/admin/api/info');$('#pub').textContent=INFO.public_key;
   const urls=[INFO.public_url,...INFO.lan_urls].filter(Boolean);$('#urls').textContent=urls.join('\n')||`http://<IP-máy-này>:${INFO.port}`;
-  $('#pubUrl').value=INFO.public_url||'';$('#trial').value=INFO.trial_days;$('#srv').textContent=`Máy chủ đang chạy · cổng ${INFO.port}`;$('#dataDir').textContent='Dữ liệu Admin: '+INFO.data_dir}
+  $('#pubUrl').value=INFO.public_url||'';$('#trial').value=INFO.trial_days;$('#maxdev').value=INFO.default_max_devices;$('#srv').textContent=`Máy chủ đang chạy · cổng ${INFO.port}`;$('#dataDir').textContent='Dữ liệu Admin: '+INFO.data_dir}
 function ask(title,fields){return new Promise(res=>{const dl=$('#dlg');
   $('#dlgBody').innerHTML=`<h3 style="margin-top:0">${title}</h3>${fields}<div class="row" style="justify-content:flex-end;margin-top:12px"><button value="cancel">Huỷ</button><button class="p" value="ok">Đồng ý</button></div>`;
   dl.onclose=()=>res(dl.returnValue==='ok'?Object.fromEntries([...dl.querySelectorAll('[name]')].map(i=>[i.name,i.value])):null);dl.showModal();
   const f=dl.querySelector('input');if(f)f.focus()})}
-document.addEventListener('click',async e=>{
-  const c=e.target.closest('[data-copy],[data-copytext]');if(c){navigator.clipboard.writeText(c.dataset.copytext||$('#'+c.dataset.copy).textContent);toast('Đã sao chép','ok');return}
-  const b=e.target.closest('[data-a]');if(!b)return;const mk=b.dataset.mk,a=b.dataset.a,act=x=>post(`/admin/api/devices/${mk}`,x);
-  try{
-   if(a==='extend')await act({action:'extend',days:+b.dataset.days});
-   else if(a==='approve'){const r=await ask('Duyệt máy '+mk,`<label>Số ngày được dùng<input name="days" type="number" min="1" value="30"></label><small>Để dùng vĩnh viễn: duyệt rồi bấm “Vĩnh viễn”.</small>`);if(!r)return;await act({action:'activate',days:+r.days})}
-   else if(a==='date'){const r=await ask('Đặt ngày hết hạn',`<input name="d" type="datetime-local">`);if(!r||!r.d)return;await act({action:'set_date',date:new Date(r.d).getTime()/1000})}
-   else if(a==='lifetime'){if(!confirm('Cho máy này dùng vĩnh viễn?'))return;await act({action:'lifetime'})}
-   else if(a==='block'){if(!confirm('Khoá máy '+mk+'? App trên máy đó sẽ ngừng hoạt động ở lần đồng bộ tới (≤ 30 phút).'))return;await act({action:'block'})}
-   else if(a==='unblock')await act({action:'unblock'});
-   else if(a==='reset_pw'){if(!confirm('Cho phép người dùng máy này tạo mật khẩu mới? (dùng khi họ quên mật khẩu)'))return;await act({action:'reset_pw'});toast('Lần mở app tới (hoặc trong ≤ 30 phút) người dùng sẽ được tạo mật khẩu mới.','ok')}
-   else if(a==='rename'||a==='note'){const d=D.find(x=>x.mk===mk);const r=await ask(a==='rename'?'Tên người dùng':'Ghi chú',`<input name="t" value="${esc(a==='rename'?d.name:d.note)}">`);if(!r)return;await act({action:a,text:r.t})}
-   else if(a==='code'){const r=await api(`/admin/api/devices/${mk}/code`);await ask('Mã kích hoạt cho '+mk,`<small>Gửi mã này cho người dùng (Zalo, email…). Họ dán vào ô “Nhập mã kích hoạt” trong app. Mã chỉ dùng được trên đúng máy này và mang hạn dùng hiện tại.</small><textarea style="width:100%;height:120px;margin-top:8px" readonly onclick="this.select()">${esc(r.code)}</textarea>`);return}
-   else if(a==='delete'){if(!confirm('Xoá máy '+mk+' khỏi danh sách? (Nếu app trên máy đó còn chạy, nó sẽ tự đăng ký lại ở trạng thái chờ duyệt)'))return;await api(`/admin/api/devices/${mk}`,{method:'DELETE'})}
-   toast('Đã cập nhật','ok');load()}catch(err){toast(err.message,'er')}
-});
-$('#q').oninput=render;$('#filter').onchange=render;
-$('#saveSet').onclick=async()=>{try{await post('/admin/api/settings',{trial_days:+$('#trial').value,public_url:$('#pubUrl').value},'PUT');await loadInfo();toast('Đã lưu','ok')}catch(e){toast(e.message,'er')}};
-$('#addDev').onclick=async()=>{const r=await ask('Thêm máy bằng mã máy',`<label>Mã máy (MRE-XXXX-XXXX-XXXX-XXXX)<input name="mk"></label><label>Tên người dùng<input name="name"></label><label>Số ngày (để trống = vĩnh viễn)<input name="days" type="number" min="1"></label>`);
-  if(!r)return;try{await post('/admin/api/devices',{mk:r.mk,name:r.name,days:r.days?+r.days:null});toast('Đã thêm. Dùng nút “Mã kích hoạt” để gửi cho người dùng nếu máy họ không vào được máy chủ.','ok');load()}catch(e){toast(e.message,'er')}};
+$('#saveSet').onclick=async()=>{try{await post('/admin/api/settings',{trial_days:+$('#trial').value,default_max_devices:+$('#maxdev').value||1,public_url:$('#pubUrl').value},'PUT');await loadInfo();toast('Đã lưu','ok')}catch(e){toast(e.message,'er')}};
 $('#exportKey').onclick=()=>{location.href='/admin/api/keys/export'};
 $('#importKey').onclick=()=>{if(confirm('Khôi phục khoá sẽ THAY khoá hiện tại. Chỉ làm khi chuyển tool Admin sang máy mới. Tiếp tục?'))$('#keyFile').click()};
 $('#keyFile').onchange=async e=>{try{const j=JSON.parse(await e.target.files[0].text());await post('/admin/api/keys/import',j);await loadInfo();toast('Đã khôi phục khoá','ok')}catch(err){toast('File khoá không hợp lệ','er')}};

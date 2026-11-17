@@ -1,14 +1,19 @@
 # Hướng dẫn tool Admin — cấp phép theo mã máy, đặt hạn sử dụng
 
-## Cách hoạt động
-1. Người dùng mở app lần đầu → app tính **mã máy** (`MRE-XXXX-XXXX-XXXX-XXXX`, theo phần cứng: không đổi kể cả khi cài lại Windows)
-   và **tự gửi về máy chủ Admin**. Người dùng có thể ghi thêm tên / SĐT.
-2. Trong tool Admin, máy mới hiện ở trạng thái **Chờ duyệt** (có thông báo). Admin bấm **Duyệt…** và nhập số ngày.
-3. App của người dùng tự nhận giấy phép (kiểm tra mỗi 20 giây khi đang chờ, mỗi 30 phút khi đang dùng) → tạo mật khẩu → dùng.
-4. Đăng nhập app = **mã máy (tự điền) + mật khẩu** người dùng tự đặt. Mật khẩu không bao giờ gửi về Admin.
+## Cách hoạt động (từ v1.5.0: theo TÀI KHOẢN)
+1. Người dùng mở app → tab **Đăng ký**: tên đăng nhập, mật khẩu, họ tên, SĐT/Zalo → yêu cầu gửi về tool Admin.
+2. Tool Admin hiện ở mục **🔔 Yêu cầu chờ xử lý** → bấm **✓ Duyệt & tạo mã…** → nhập số ngày → hiện **MÃ KÍCH HOẠT**
+   (dạng `K7QM-3XPA`, dùng 1 lần, hết hạn sau 7 ngày) kèm tin nhắn mẫu → **Sao chép tin nhắn** → gửi qua Zalo/SMS.
+3. Người dùng nhập mã vào app → **Kích hoạt máy này** → **Đăng nhập**.
+4. Từ đó trên máy này: chỉ cần **tên đăng nhập + mật khẩu**, **không cần mạng**.
+5. **Đăng nhập tài khoản sang máy khác** → app tự gửi yêu cầu "Đăng nhập trên máy mới" → Admin bấm **🔑 Tạo mã kích hoạt** →
+   gửi mã → máy mới dùng được. Mặc định mỗi tài khoản dùng **1 máy**: kích hoạt máy mới thì máy cũ tự bị thu hồi
+   (đổi được bằng nút **Số máy**).
+6. **Cài lại Windows trên cùng máy**: mã máy theo phần cứng không đổi → chỉ cần đăng nhập lại là dùng tiếp, không cần mã.
 
+Mật khẩu được app băm trước khi gửi đi; Admin không xem được mật khẩu của người dùng. Hạn dùng/khoá đặt theo tài khoản.
 Giấy phép có **chữ ký số**: app kiểm tra được khi không có mạng và không ai sửa được hạn dùng. Máy Admin **không cần bật 24/7**:
-chỉ cần bật khi có người đăng ký mới hoặc khi gia hạn. Hết hạn hoặc bị khoá → app tự khoá, hiện thông báo liên hệ Admin.
+chỉ cần bật khi có người đăng ký / đổi máy / gia hạn.
 
 ## Cài đặt lần đầu (làm 1 lần)
 1. Lấy `MovieReviewEditor-Admin.exe` (GitHub Actions → artifact **MovieReviewEditor-Admin**, hoặc chạy `build_admin.bat`).
@@ -37,11 +42,14 @@ Máy khách không vào được máy chủ (mạng chặn, máy Admin tắt lâ
 người dùng (Zalo, email) → họ dán vào **"Có mã kích hoạt từ Admin?"** trên màn hình khoá. Mã chỉ dùng được trên đúng máy đó.
 
 ## Việc hằng ngày
-- **Duyệt máy mới**: lọc "Chờ duyệt" → **Duyệt…** → nhập số ngày.
+- **Duyệt đăng ký / máy mới**: mục 🔔 Yêu cầu chờ xử lý → **Duyệt & tạo mã** (tài khoản mới: nhập số ngày) → gửi mã. Không duyệt: **Từ chối**.
 - **Gia hạn**: +7 ngày / +30 / +90 / +1 năm (cộng thêm từ ngày hết hạn hiện tại), **Đặt ngày…**, hoặc **Vĩnh viễn**.
-- **Khoá máy** (ví dụ ngừng thanh toán): **Khoá** → app trên máy đó tự khoá trong ≤ 30 phút (hoặc lần mở app tới).
-- **Người dùng quên mật khẩu**: **Đặt lại MK** → lần mở app tới, họ được tạo mật khẩu mới (dự án, dữ liệu vẫn còn).
-- **Dùng thử tự động**: ô "Dùng thử tự động cho máy mới" = số ngày → máy mới tự được dùng ngay N ngày, không cần duyệt.
+- **Khoá tài khoản** (ví dụ ngừng thanh toán): **Khoá** → app tự khoá trong ≤ 30 phút hoặc ở lần đăng nhập tới.
+- **Người dùng quên mật khẩu**: **Đặt mật khẩu mới** → gửi mật khẩu đó cho họ → họ đăng nhập (cần mạng) rồi tự đổi trong ⚙ Cài đặt.
+- **Thu hồi một máy**: nút **Thu hồi** ở dòng máy đó.
+- **Tạo sẵn tài khoản cho khách**: **+ Tạo tài khoản** → khách chỉ cần Đăng nhập trong app → bạn tạo mã cho máy của họ.
+- **Máy khách không vào được máy chủ**: nút **Mã offline** ở dòng máy (chuỗi dài) → khách dán vào ô Mã kích hoạt.
+- **Dùng thử**: ô "Dùng thử khi đăng ký" = số ngày → khách đăng ký là dùng được ngay N ngày, không cần mã.
 
 ## Giới hạn cần biết
 - Đây là cơ chế cấp phép cho người dùng thông thường. Người có kỹ thuật cao vẫn có thể dịch ngược ứng dụng Python để bỏ

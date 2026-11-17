@@ -31,6 +31,12 @@ Không build chéo được: phải build trên Windows để ra file .exe.
 ## Chạy thử không build
 `run_dev.bat` (Windows) hoặc `./run_dev.sh` (Linux/macOS, cần ffmpeg trong PATH).
 
+## Mới trong v1.5.0
+- **Tài khoản**: màn hình khoá có 2 tab **Đăng nhập | Đăng ký**. Đăng ký gửi yêu cầu lên tool Admin → Admin duyệt và gửi
+  **mã kích hoạt** (`XXXX-XXXX`) → nhập vào app. Máy đã kích hoạt đăng nhập không cần mạng; đăng nhập tài khoản trên
+  máy khác mới cần kích hoạt lại (máy cũ tự bị thu hồi). Đổi mật khẩu trong ⚙ Cài đặt áp dụng cho mọi máy;
+  quên mật khẩu thì Admin đặt mật khẩu mới. Chi tiết: `HUONG_DAN_ADMIN.md`.
+
 ## Mới trong v1.4.0
 - **Giấy phép theo mã máy + tool Admin** (xem `HUONG_DAN_ADMIN.md`): mã máy tính từ phần cứng, lần đầu mở app tự gửi về
   máy chủ Admin; Admin duyệt, đặt hạn dùng, gia hạn, khoá máy, cho đặt lại mật khẩu. Giấy phép ký số Ed25519 → kiểm tra
