@@ -1,0 +1,4 @@
+UPDATE_REPO = ''
+DIST = 'source'
+LICENSE_SERVER = ''
+LICENSE_PUBKEY = ''

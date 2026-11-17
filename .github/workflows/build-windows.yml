@@ -1,0 +1,151 @@
+name: Build Windows exe + Setup
+
+# Cách dùng: đưa toàn bộ thư mục dự án này lên một repo GitHub (miễn phí),
+# tab Actions -> "Build Windows exe + Setup" -> Run workflow -> đợi ~20-30 phút.
+# Kết quả (mục Artifacts):
+#   MovieReviewEditor-Setup     -> MovieReviewEditor-Setup-X.Y.Z.exe   : GỬI FILE NÀY cho máy khác (bấm đôi là cài + mở app)
+#   MovieReviewEditor-Portable  -> MovieReviewEditor-Portable-X.Y.Z.exe: 1 file chạy ngay, không cần cài (bản nhẹ)
+# PHÁT HÀNH BẢN CẬP NHẬT: sửa backend/app/version.py rồi đẩy tag (vd: git tag v1.3.0 && git push origin v1.3.0)
+# -> workflow tự đăng lên mục Releases -> mọi máy đang dùng app thấy nút "Cập nhật" và tự cài.
+# Repo phải ở chế độ PUBLIC thì máy khác mới đọc được Releases để cập nhật.
+# GIẤY PHÉP THEO MÃ MÁY: mở tool Admin (artifact MovieReviewEditor-Admin) -> sao chép "Khoá công khai" và "Địa chỉ máy chủ"
+# -> repo Settings -> Secrets and variables -> Actions -> tab Variables -> tạo LICENSE_PUBKEY và LICENSE_SERVER -> build lại.
+# Không đặt LICENSE_PUBKEY = app không yêu cầu giấy phép.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "full = có Whisper + tự phát hiện cảnh, lite = nhẹ (chỉ áp dụng cho bản Setup)"
+        default: "full"
+        type: choice
+        options: [full, lite]
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - name: Xác định phiên bản
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}" -replace '^v',''
+          if ($v -match '^\d+\.\d+\.\d+') {
+            # Đẩy tag -> phiên bản trong app = tag (để nút Cập nhật so sánh đúng)
+            "__version__ = `"$v`"" | Set-Content backend/app/version.py -Encoding utf8
+          } else {
+            $v = (Get-Content backend/app/version.py) -replace '.*"(.*)".*','$1'
+          }
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Phien ban: $v"
+      - name: Cài thư viện
+        working-directory: backend
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt "pyinstaller>=6.6" "pyinstaller-hooks-contrib>=2024.6"
+          if ("${{ github.event.inputs.mode }}" -ne "lite") { pip install -r requirements-ai.txt }
+      - name: Tải FFmpeg
+        working-directory: backend
+        shell: pwsh
+        run: ./scripts/get_ffmpeg.ps1
+
+      # ---------- Bản thư mục (đóng vào Setup.exe) ----------
+      - name: Đóng gói exe (bản cài)
+        working-directory: backend
+        shell: pwsh
+        run: |
+          "UPDATE_REPO = `"${{ github.repository }}`"`nDIST = `"setup`"`nLICENSE_SERVER = `"${{ vars.LICENSE_SERVER }}`"`nLICENSE_PUBKEY = `"${{ vars.LICENSE_PUBKEY }}`"" | Set-Content app/build_info.py -Encoding utf8
+          pyinstaller --noconfirm --clean movie_review_editor.spec
+      - name: Tự kiểm tra exe (bản cài)
+        working-directory: backend
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "selftest_result.txt"
+          $p = Start-Process -FilePath ".\dist\MovieReviewEditor\MovieReviewEditor.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
+          if (Test-Path $out) { Get-Content $out }
+          if ($p.ExitCode -ne 0) { Write-Error "Tu kiem tra exe KHONG DAT (ma $($p.ExitCode))"; exit 1 }
+
+      # ---------- Bản 1 file portable ----------
+      - name: Đóng gói 1 file (portable)
+        working-directory: backend
+        shell: pwsh
+        run: |
+          "UPDATE_REPO = `"${{ github.repository }}`"`nDIST = `"portable`"`nLICENSE_SERVER = `"${{ vars.LICENSE_SERVER }}`"`nLICENSE_PUBKEY = `"${{ vars.LICENSE_PUBKEY }}`"" | Set-Content app/build_info.py -Encoding utf8
+          $env:MRE_ONEFILE = "1"
+          pyinstaller --noconfirm --clean --distpath dist_portable --workpath build_portable movie_review_editor.spec
+          New-Item -ItemType Directory -Force -Path ../release | Out-Null
+          Copy-Item dist_portable/MovieReviewEditor.exe "../release/MovieReviewEditor-Portable-$env:APP_VERSION.exe"
+          Get-ChildItem ../release
+      - name: Tự kiểm tra exe (portable)
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD "selftest_portable.txt"
+          $p = Start-Process -FilePath "release\MovieReviewEditor-Portable-$env:APP_VERSION.exe" -ArgumentList "--selftest", "`"$out`"" -Wait -PassThru
+          if (Test-Path $out) { Get-Content $out }
+          if ($p.ExitCode -ne 0) { Write-Error "Tu kiem tra ban portable KHONG DAT (ma $($p.ExitCode))"; exit 1 }
+
+      # ---------- Tool Admin (quản lý mã máy + hạn dùng) — KHÔNG đăng lên Releases ----------
+      - name: Đóng gói tool Admin
+        working-directory: admin
+        shell: pwsh
+        run: |
+          pip install -r requirements.txt
+          pyinstaller --noconfirm --clean admin.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieReviewEditor-Admin
+          path: admin/dist/MovieReviewEditor-Admin.exe
+          retention-days: 30
+
+      # ---------- Bộ cài một chạm ----------
+      - name: Tải Microsoft VC++ Runtime (đóng kèm bộ cài cho máy sạch)
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest https://aka.ms/vs/17/release/vc_redist.x64.exe -OutFile backend/vc_redist.x64.exe -UseBasicParsing
+      - name: Tải WebView2 Runtime bootstrapper (cài kèm nếu máy thiếu)
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          Invoke-WebRequest "https://go.microsoft.com/fwlink/p/?LinkId=2124703" -OutFile backend/MicrosoftEdgeWebview2Setup.exe -UseBasicParsing
+      - name: Cài Inno Setup nếu thiếu
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Tạo bộ cài Setup.exe
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$env:APP_VERSION" installer\MovieReviewEditor.iss
+          Copy-Item installer_output/*.exe release/
+          Get-ChildItem release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieReviewEditor-Setup
+          path: release/MovieReviewEditor-Setup-*.exe
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieReviewEditor-Portable
+          path: release/MovieReviewEditor-Portable-*.exe
+          retention-days: 30
+      - name: Đăng lên Releases (khi đẩy tag vX.Y.Z) -> các máy tự thấy bản cập nhật
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/MovieReviewEditor-Setup-*.exe
+            release/MovieReviewEditor-Portable-*.exe
+          body: |
+            **Cài mới:** tải `MovieReviewEditor-Setup-${{ env.APP_VERSION }}.exe`, bấm đôi (tự cài + mở app, không cần quyền Admin).
+            **Không muốn cài:** tải `MovieReviewEditor-Portable-${{ env.APP_VERSION }}.exe` (1 file, chạy ngay; bản nhẹ không có Whisper).
+            **Đang dùng app:** mở ⚙ Cài đặt → Cập nhật phiên bản → Tải & cài.

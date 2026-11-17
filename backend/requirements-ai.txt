@@ -1,0 +1,3 @@
+# Tuỳ chọn nhưng cần cho tính năng đầy đủ (Whisper + scene detection). Nặng ~1GB khi đóng gói.
+faster-whisper>=1.0
+scenedetect[opencv-headless]>=0.6.4

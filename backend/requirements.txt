@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn>=0.29
+sqlalchemy>=2.0
+pydantic>=2.6
+python-multipart>=0.0.9
+anthropic>=0.40
+# Cửa sổ ứng dụng desktop (Edge WebView2). Linux/macOS khi phát triển: không cần, app tự mở trình duyệt.
+pywebview>=5.0; sys_platform == "win32"
+cryptography>=42      # kiểm tra chữ ký giấy phép (Ed25519) do tool Admin cấp
+psutil>=5.9           # thanh trạng thái: CPU, RAM, ổ đĩa
