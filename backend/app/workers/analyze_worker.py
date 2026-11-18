@@ -53,7 +53,8 @@ def analyze_project(project_id: str, tag: bool = False):
             raise
 
 
-def transcribe_project(project_id: str, language: str | None, fail_project: bool = True):
+def transcribe_project(project_id: str, language: str | None, fail_project: bool = True,
+                       script: str | None = None, progress=None):
     from ..services.whisper_service import transcribe_to_cues
     with SessionLocal() as db:
         p = db.get(Project, project_id)
@@ -64,7 +65,7 @@ def transcribe_project(project_id: str, language: str | None, fail_project: bool
                                             Asset.processing_status != "failed").order_by(Asset.created_at.desc()).first())
             if voice is None:
                 raise ValueError("Chưa có file giọng đọc để tạo phụ đề")
-            cues = transcribe_to_cues(voice.file_path, language or p.language)
+            cues = transcribe_to_cues(voice.file_path, language or p.language, script=script, progress=progress)
             if not cues:
                 raise ValueError("Whisper không nghe ra lời nào trong file giọng đọc")
             db.query(SrtCue).filter_by(project_id=project_id).delete()

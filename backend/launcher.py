@@ -185,8 +185,10 @@ class DesktopApi:
     def pick_files(self, kind: str = "media", start_dir: str = ""):
         """Hộp thoại chọn file của Windows (mở sẵn ở thư mục đầu vào) -> trả ĐƯỜNG DẪN (thêm kiểu liên kết, không sao chép)."""
         import webview
-        types = ("Video, âm thanh, ảnh (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.mp3;*.wav;*.m4a;*.aac;*.png;*.jpg;*.jpeg;*.webp;*.cube)",
+        types = ("Video, âm thanh, phụ đề, ảnh (*.mp4;*.mov;*.mkv;*.webm;*.avi;*.mp3;*.wav;*.m4a;*.aac;*.srt;*.vtt;*.png;*.jpg;*.jpeg;*.webp;*.cube)",
                  "Tất cả (*.*)")
+        if kind == "subs":
+            types = ("Phụ đề (*.srt;*.vtt)", "Tất cả (*.*)")
         try:
             res = self._window.create_file_dialog(webview.OPEN_DIALOG, directory=start_dir or "", allow_multiple=True,
                                                   file_types=types)

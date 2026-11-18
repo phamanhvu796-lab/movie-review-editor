@@ -9,7 +9,7 @@ from ..database import get_db
 from ..models import Asset, EditPlanRow, Project, SrtCue, to_dict
 from ..services.ffmpeg_service import probe
 from ..services import storage_service
-from ..services.srt_service import parse_srt
+from ..services.srt_service import decode_subs, parse_srt
 from ..utils.paths import data_dir
 from ..utils.rangefile import ranged_file
 from ..workers import analyze_worker, pool
@@ -280,12 +280,23 @@ def parse_text(pid: str, body: SrtText, db=Depends(get_db)):
 
 @router.post("/projects/{pid}/srt/upload")
 def upload_srt(pid: str, file: UploadFile = File(...), db=Depends(get_db)):
-    raw = file.file.read()
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        text = raw.decode("cp1252", errors="replace")
-    return _store(db, get_project(db, pid), parse_srt(text))
+    return _store(db, get_project(db, pid), parse_srt(decode_subs(file.file.read())))
+
+
+class SrtPath(BaseModel):
+    path: str
+
+
+@router.post("/projects/{pid}/srt/from-path")
+def srt_from_path(pid: str, body: SrtPath, db=Depends(get_db)):
+    """Nạp SRT/VTT từ đường dẫn trên máy (hộp chọn file của app desktop, quét thư mục đầu vào)."""
+    p = get_project(db, pid)
+    f = Path(body.path)
+    if f.suffix.lower() not in (".srt", ".vtt") or not f.is_file():
+        raise HTTPException(400, "Không phải file phụ đề .srt/.vtt")
+    if f.stat().st_size > 5 * 1024 * 1024:
+        raise HTTPException(400, "File phụ đề quá lớn")
+    return {**_store(db, p, parse_srt(decode_subs(f.read_bytes()))), "file": f.name}
 
 
 @router.get("/projects/{pid}/srt/cues")
@@ -317,9 +328,14 @@ def transcribe(pid: str, body: TranscribeIn = TranscribeIn(), db=Depends(get_db)
     ensure_idle(p)
     if not db.query(Asset).filter_by(project_id=pid, asset_type="voice").count():
         raise HTTPException(400, "Chưa upload voice-over")
+    from ..services.whisper_service import can_transcribe
+    if not can_transcribe():
+        raise HTTPException(400, "Chưa có cách nghe giọng đọc: gắn API key ElevenLabs hoặc OpenAI ở ⚙ Cài đặt (nhanh nhất), "
+                                 "hoặc nạp file SRT")
     p.status = "analyzing"
     db.commit()
-    pool.submit(analyze_worker.transcribe_project, pid, body.language)
+    pool.submit(analyze_worker.transcribe_project, pid, body.language, True,
+                ((p.settings or {}).get("script") or "").strip() or None)
     return {"status": "queued"}
 
 

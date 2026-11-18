@@ -1,5 +1,8 @@
 """Chế độ KỊCH BẢN -> VIDEO (tự tìm hình minh hoạ) + key kho ảnh/video miễn phí."""
-from fastapi import APIRouter, Depends, HTTPException
+import shutil
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
@@ -9,6 +12,7 @@ from ..models import SrtCue
 from ..services import factcheck_service, stock_service, styles
 from ..services.api_errors import friendly
 from ..workers import broll_worker, pool
+from ..utils.paths import data_dir
 from .deps import ensure_idle, get_project
 
 router = APIRouter(prefix="/api")
@@ -127,3 +131,72 @@ def factcheck(pid: str, body: FactIn, db=Depends(get_db)):
 @router.get("/projects/{pid}/factcheck")
 def factcheck_last(pid: str, db=Depends(get_db)):
     return (get_project(db, pid).settings or {}).get("factcheck") or {}
+
+
+# ------------------------------------------------------------------ hình còn thiếu: cần tìm / cần vẽ (gắn file vào từng câu)
+class FillPath(BaseModel):
+    path: str = Field(min_length=3, max_length=1000)
+
+
+class ReqPatch(BaseModel):
+    prompt: str | None = Field(None, max_length=4000)
+    what: str | None = Field(None, max_length=1000)
+    status: str | None = Field(None, pattern="^(open|filled|skipped)$")
+
+
+@router.get("/projects/{pid}/media-requests")
+def media_requests(pid: str, db=Depends(get_db)):
+    return (get_project(db, pid).settings or {}).get("media_requests") or {"items": []}
+
+
+def _after_fill(db, pid: str, res: dict) -> dict:
+    from ..models import to_dict
+    from ..workers.render_worker import rerender_soon
+    p = get_project(db, pid)
+    res["render"] = rerender_soon(db, p) if res["valid"] else "none"
+    db.refresh(p)
+    return {**res, "project": to_dict(p)}
+
+
+@router.post("/projects/{pid}/media-requests/{cue}/fill")
+def media_fill(pid: str, cue: int, body: FillPath, db=Depends(get_db)):
+    from ..workers import media_worker
+    get_project(db, pid)
+    if not Path(body.path).is_file():
+        raise HTTPException(400, "Không thấy file")
+    try:
+        res = media_worker.fill(pid, cue, body.path)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return _after_fill(db, pid, res)
+
+
+@router.post("/projects/{pid}/media-requests/{cue}/upload")
+def media_upload(pid: str, cue: int, file: UploadFile = File(...), db=Depends(get_db)):
+    from ..workers import media_worker
+    get_project(db, pid)
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in media_worker.IMAGE_EXT | media_worker.VIDEO_EXT:
+        raise HTTPException(400, "Chỉ nhận ảnh (jpg, png, webp) hoặc video (mp4, mov, mkv, webm)")
+    tmp = data_dir() / "projects" / pid / "uploads"
+    tmp.mkdir(parents=True, exist_ok=True)
+    dest = tmp / Path(file.filename).name
+    with open(dest, "wb") as f:
+        shutil.copyfileobj(file.file, f, 1024 * 1024)
+    try:
+        res = media_worker.fill(pid, cue, str(dest))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    finally:
+        dest.unlink(missing_ok=True)
+    return _after_fill(db, pid, res)
+
+
+@router.patch("/projects/{pid}/media-requests/{cue}")
+def media_patch(pid: str, cue: int, body: ReqPatch, db=Depends(get_db)):
+    from ..workers import media_worker
+    get_project(db, pid)
+    hit = media_worker.update_request(pid, cue, **body.model_dump())
+    if hit is None:
+        raise HTTPException(404, "Không có yêu cầu hình cho câu này")
+    return hit

@@ -53,3 +53,13 @@ def test_merge_short_cues():
             Cue(index=3, start=3.4, end=7, text="c")]
     out = merge_short_cues(cues)
     assert [c.text for c in out] == ["a b", "c"] and out[0].end == 3.4 and [c.index for c in out] == [1, 2]
+
+
+def test_decode_subs_handles_common_encodings():
+    from app.services.srt_service import decode_subs, parse_srt
+    text = "1\n00:00:01,000 --> 00:00:02,500\nLạm phát tăng\n"
+    for raw in (text.encode("utf-8"), "﻿".encode("utf-8") + text.encode("utf-8"),
+                text.encode("utf-16"), text.encode("cp1258", errors="ignore")):
+        cues = parse_srt(decode_subs(raw)).cues
+        assert len(cues) == 1 and cues[0].start == 1.0 and cues[0].text.startswith("L")
+    assert parse_srt(decode_subs(text.encode("utf-16"))).cues[0].text == "Lạm phát tăng"

@@ -39,6 +39,11 @@ hr{border:0;border-top:1px solid var(--bd);margin:14px 0}small{color:var(--mut);
 .msg.prog ol{margin:2px 0 0 18px;padding:0;font-size:12px;opacity:.75}.msg.prog li:last-child{opacity:1;font-weight:600}
 .spin{display:inline-block;width:10px;height:10px;border:2px solid var(--ac);border-right-color:transparent;border-radius:50%;animation:sp 0.8s linear infinite;margin-right:6px;vertical-align:-1px}
 @keyframes sp{to{transform:rotate(360deg)}}
+.mreq{border:1px solid var(--bd);border-radius:8px;padding:7px 8px;margin-top:7px;background:var(--p1);white-space:normal}
+.mreq.ok{opacity:.6}.mreq .tag{font-size:11px;padding:1px 6px;border-radius:9px;background:var(--p3);margin-left:4px}
+.mreq pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border-radius:6px;padding:6px;margin:5px 0;font-size:11.5px;max-height:140px;overflow:auto}
+.mreq .kw{display:inline-block;font-size:11px;border:1px dashed var(--bd);border-radius:9px;padding:1px 7px;margin:3px 3px 0 0;cursor:copy}
+.mreq .row{margin:5px 0 0;gap:5px;flex-wrap:wrap}.mreq .row button{padding:3px 8px;font-size:12px;flex:0 0 auto}
 .msg.err{border-left:3px solid var(--er)}.msg.done{border-left:3px solid var(--ok)}.msg .row{margin:6px 0 0}
 .bgjob{font-size:12px;background:var(--p2);border:1px dashed var(--bd);border-radius:8px;padding:6px 8px}
 .chips{display:flex;flex-wrap:wrap;gap:5px}.chips button{font-size:11px;padding:3px 8px;border-radius:99px}
@@ -593,6 +598,21 @@ async function poll(){
     S.wasBusy=nowBusy;
   }catch(e){}
 }
+function md(t){return esc(t).replace(/\*\*([^*\n]+)\*\*/g,'<b>$1</b>').replace(/(^|\n)\s*[-•]\s+/g,'$1• ').replace(/`([^`\n]+)`/g,'<code>$1</code>')}
+function mreqHtml(m,live){
+  const R=((S.project||{}).settings||{}).media_requests||{},items=R.items||[];
+  if(!live||!items.length)return `<div class="msg a">${md(m.text)}</div>`;
+  const open=items.filter(x=>x.status==='open'),show=S.mreqAll?items:open;
+  const prompts=items.filter(x=>x.prompt&&x.status==='open').map(x=>`Câu ${x.cue}: ${x.prompt}`).join('\n\n');
+  const card=x=>`<div class="mreq ${x.status!=='open'?'ok':''}"><b>Câu ${x.cue} · ${fmt1(x.start)}–${fmt1(x.end)}</b><span class="tag">${x.need==='draw'?'✏️ Cần vẽ':'🔎 Cần tìm'}</span>${x.status==='filled'?`<span class="tag">✓ ${esc(x.file||'đã gắn')}</span>`:x.status==='skipped'?'<span class="tag">bỏ qua</span>':''}
+    <small style="display:block;margin:3px 0">“${esc(x.text)}”</small>${x.what?`<div>${esc(x.what)}</div>`:''}
+    ${(x.keywords||[]).length?`<div>${x.keywords.map(k=>`<span class="kw" data-copytext="${esc(k)}" title="Bấm để sao chép">${esc(k)}</span>`).join('')}${x.where?`<small style="display:block;margin-top:3px">Tìm ở: ${esc(x.where)}</small>`:''}</div>`:''}
+    ${x.prompt?`<pre>${esc(x.prompt)}</pre>`:''}
+    ${x.status==='open'?`<div class="row">${x.prompt?`<button data-copytext="${esc(x.prompt)}">⧉ Prompt</button>`:''}<button class="p" data-act="mreqFill" data-cue="${x.cue}">📎 Gắn file</button><button data-act="mreqAsk" data-cue="${x.cue}">💬 Nhờ viết lại</button><button data-act="mreqSkip" data-cue="${x.cue}">Bỏ qua</button></div>`:''}</div>`;
+  return `<div class="msg a">${md(m.text)}<small style="margin-top:5px">${open.length}/${items.length} câu còn chờ hình${(m.counts||{}).draw?' · prompt dùng được cho Midjourney, DALL·E, Ideogram, Leonardo…':''}</small>
+    <div class="row">${prompts?`<button data-copytext="${esc(prompts)}">⧉ Sao chép tất cả prompt</button>`:''}${items.length>open.length?`<button data-act="mreqAll">${S.mreqAll?'Ẩn câu đã xong':'Hiện cả câu đã xong'}</button>`:''}</div>
+    ${show.map(card).join('')||'<small>✓ Đã đủ hình cho tất cả các câu.</small>'}</div>`;
+}
 function scrollChat(){S.chatUp=null;const l=$('#chatLog');if(l)l.scrollTop=l.scrollHeight}
 function refreshBusyViews(){if(S.menu==='export'||S.menu==='assets'||S.menu==='plan')renderLeft();
   if(S.rtab==='chat'&&!S.chatBusy){const t=$('#chatIn'),f=t&&document.activeElement===t;
@@ -754,7 +774,7 @@ function lScript(){
   if(!S.pid)return needProject();
   const rows=S.cues.map(c=>`<div class="cue"><input data-cue="${c.id}" data-f="start_seconds" value="${c.start_seconds}"><input data-cue="${c.id}" data-f="end_seconds" value="${c.end_seconds}"><input data-cue="${c.id}" data-f="text" value="${esc(c.text.replace(/\n/g,' '))}"></div>`).join('');
   $('#lbody').innerHTML=`<h3>Nạp kịch bản</h3>
-   <input id="sFile" type="file" accept=".srt,.vtt"><div class="row"><button data-act="srtUpload">Tải file SRT/VTT</button><button data-act="transcribe">Tạo từ giọng đọc (Whisper)</button></div>
+   <input id="sFile" type="file" accept=".srt,.vtt"><div class="row"><button data-act="srtUpload">Tải file SRT/VTT</button>${window.pywebview&&window.pywebview.api?'<button data-act="srtPick">📂 Chọn SRT trên máy</button>':''}<button data-act="transcribe">Tạo từ giọng đọc</button></div>
    <textarea id="sText" rows="4" placeholder="Hoặc dán nội dung SRT vào đây" style="margin-top:8px"></textarea><button data-act="srtParse" style="margin-top:6px;width:100%">Nạp SRT đã dán</button>
    <div id="sIssues" class="err" style="white-space:pre-wrap"></div>
    ${S.cues.length?fcHtml('script'):''}
@@ -867,6 +887,9 @@ function lSettings(){
    <div class="row"><button data-act="rescanHw">↻ Quét lại cấu hình</button></div>`:'<p class="mut">Đang quét cấu hình máy…</p>';
   $('#lbody').innerHTML=`<div class="row" style="margin:0 0 6px"><button data-act="refreshCredits">↻ Làm mới số dư API</button></div>`+SVC.map(([svc,t,h])=>srcBlock(svc,t,h)).join('')+`
    ${lic}
+   <h3 id="sttH">Phụ đề từ giọng đọc</h3>
+   <label>Nghe giọng đọc bằng<select id="sttMode">${Object.entries({auto:'Tự động — API nếu có key (nhanh nhất), không thì Whisper trên máy',elevenlabs:'ElevenLabs Scribe (dùng key ElevenLabs)',openai:'OpenAI Whisper API (dùng key OpenAI)',local:'Whisper trên máy (miễn phí, chậm hơn)'}).map(([k,t])=>`<option value="${k}" ${c.stt_provider===k?'selected':''}>${t}</option>`).join('')}</select></label>
+   <small>${(c.stt_api||[]).length?'✓ Sẽ dùng: '+c.stt_api.map(esc).join(' → '):'Chưa có key ElevenLabs/OpenAI ở mục Giọng AI → dùng Whisper trên máy.'} API Claude không nhận được âm thanh nên bước này dùng dịch vụ nhận giọng nói; có kịch bản thì chữ phụ đề lấy đúng theo kịch bản, chỉ lấy thời gian từ giọng đọc.</small>
    <h3 id="dirH">Thư mục làm việc</h3>
    ${dirRow('input_dir','📥 Thư mục ĐẦU VÀO (phim, voice, nhạc, logo…)','vd: D:\\Phim\\Review')}
    ${dirRow('output_dir','📤 Thư mục ĐẦU RA (video xuất bản chính thức)','vd: D:\\Video da xuat')}
@@ -901,12 +924,14 @@ function rChat(){
   const bg=st==='rendering'||run?`<div class="bgjob">🎬 Đang dựng lại video ngầm${run&&run.progress?` · ${run.progress}%`:''}${ps.rerender_pending?' — đã nhận yêu cầu mới, sẽ dựng tiếp bản mới nhất ngay sau đó':''}. Bạn vẫn xem và chat tiếp được; xong sẽ tự phát bản mới.</div>`:'';
   const fb=S.chatAt!=null?`<div class="focusbar"><span>📍 Sửa đoạn <b>${fmt1(S.chatAt)}</b>${S.chatCue?': “'+esc(S.chatCue.text.slice(0,90))+'”':''}<br><small class="mut">Gõ điều chưa ưng ở đoạn này, ví dụ “cảnh này không khớp lời, đổi cảnh khác”.</small></span><button data-act="fixClear" title="Bỏ chọn đoạn" style="flex:0 0 auto;padding:2px 7px">✕</button></div>`:'';
   const working=st==='analyzing';
+  const lastReq=S.chat.map(m=>m.kind).lastIndexOf('media_request');
   const log=S.chat.map((m,i)=>{
     if(m.kind==='progress'){const live=working&&i===S.chat.length-1;
       return `<div class="msg a prog"><b>${live?'<span class="spin"></span>Claude đang làm…':'Các bước đã làm'}</b><ol>${(m.steps||[m.text]).map(x=>`<li>${esc(x)}</li>`).join('')}</ol></div>`}
+    if(m.kind==='media_request')return mreqHtml(m,i===lastReq);
     const cls=m.role==='user'?'u':'a'+(m.kind==='error'?' err':m.kind==='render'?' done':'');
     const btn=m.kind==='render'&&m.render_id?`<div class="row"><button class="p" data-act="viewRender" data-id="${esc(m.render_id)}">▶ Xem video</button>${m.path?`<button data-act="openRenderFile" data-path="${esc(m.path)}">📂 Mở thư mục</button>`:''}</div>`:'';
-    return `<div class="msg ${cls}">${m.at_time!=null?`<small style="margin:0 0 3px">📍 ${fmt1(m.at_time)}</small>`:''}${esc(m.text)}${m.notes&&m.notes.length&&m.kind!=='summary'?`<small>• ${m.notes.map(esc).join('<br>• ')}</small>`:''}${m.notes&&m.notes.length&&m.kind==='summary'?`<details><summary><small style="display:inline">Chi tiết</small></summary><small>• ${m.notes.map(esc).join('<br>• ')}</small></details>`:''}${m.version?`<small>${m.valid?'✓':'⚠'} Đã lưu bản dựng phiên bản ${m.version}${m.valid?'':' (còn lỗi — xem tab Bản dựng)'}</small>`:''}${btn}</div>`}).join('')
+    return `<div class="msg ${cls}">${m.at_time!=null?`<small style="margin:0 0 3px">📍 ${fmt1(m.at_time)}</small>`:''}${m.role==='user'?esc(m.text):md(m.text)}${m.notes&&m.notes.length&&m.kind!=='summary'?`<small>• ${m.notes.map(esc).join('<br>• ')}</small>`:''}${m.notes&&m.notes.length&&m.kind==='summary'?`<details><summary><small style="display:inline">Chi tiết</small></summary><small>• ${m.notes.map(esc).join('<br>• ')}</small></details>`:''}${m.version?`<small>${m.valid?'✓':'⚠'} Đã lưu bản dựng phiên bản ${m.version}${m.valid?'':' (còn lỗi — xem tab Bản dựng)'}</small>`:''}${btn}</div>`}).join('')
     ||`<div class="msg a">Xin chào, mình là Claude! Bấm <b>⚡ Tự động edit</b> để mình tự làm video từ những gì bạn đã thêm (phim, voice MP3, SRT, kịch bản) — mình sẽ kể từng bước ngay tại đây. Hoặc nhắn cho mình, ví dụ “làm video tin tài chính 60 giây về lãi suất”, “mở đầu kịch tính hơn”, “màu đen trắng cả video”.</div>`;
   return `<div class="chat"><div class="row" style="margin:0"><button class="p" data-act="autoEdit" ${busy?'disabled':''}>⚡ Tự động edit</button>${S.chat.length?'<button data-act="chatClear" style="flex:0 0 auto">Xoá chat</button>':''}</div>
    <div id="chatLog" class="chatlog">${log}${S.chatBusy?'<div class="msg a wait"><span class="spin"></span>Claude đang đọc yêu cầu…</div>':''}</div>${bg}${fb}
@@ -1152,6 +1177,8 @@ const ACT={
   analyze:()=>runBusy(()=>send('POST',`/projects/${S.pid}/analyze`,{tag_scenes:!!($('#tag')||{}).checked}),'Đang phân tích cảnh phim…'),
   srtUpload:async()=>{const f=$('#sFile').files[0];if(!f)return toast('Chọn file SRT/VTT','err');const fd=new FormData();fd.append('file',f);
     try{const r=await api(`/projects/${S.pid}/srt/upload`,{method:'POST',body:fd});await loadCues();renderLeft();renderTimeline();showIssues(r)}catch(e){toast(e.message,'err')}},
+  srtPick:async()=>{let paths=[];try{paths=await window.pywebview.api.pick_files('subs',(S.dirs||{}).input_dir||'')}catch{}
+    if(await ACT.loadSubsPaths(paths||[])){renderLeft();renderTimeline()}},
   srtParse:async()=>{try{const r=await send('POST',`/projects/${S.pid}/srt/parse`,{text:$('#sText').value});await loadCues();renderLeft();renderTimeline();showIssues(r)}catch(e){toast(e.message,'err')}},
   transcribe:()=>runBusy(()=>send('POST',`/projects/${S.pid}/srt/transcribe`,{}),'Đang tạo phụ đề từ giọng đọc…'),
   loadVoices:()=>loadVoices(false),
@@ -1216,6 +1243,23 @@ const ACT={
     try{const r=await send('POST','/system/update/apply');S.upd.download=r;lSettings();
       document.body.insertAdjacentHTML('beforeend','<div style="position:fixed;inset:0;background:#000c;z-index:999;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff">Đang cập nhật lên v'+esc(S.upd.latest)+'… ứng dụng sẽ tự mở lại.</div>')}
     catch(e){toast(e.message,'err')}},
+  mreqAll:()=>{S.mreqAll=!S.mreqAll;renderRight()},
+  mreqAsk:el=>{S.chatDraft=`Viết lại prompt vẽ cho câu ${el.dataset.cue}: `;renderRight();setTimeout(()=>{const t=$('#chatIn');if(t){t.focus();t.selectionStart=t.value.length}},30)},
+  mreqSkip:async el=>{try{await send('PATCH',`/projects/${S.pid}/media-requests/${el.dataset.cue}`,{status:'skipped'});await loadProject();renderRight()}catch(e){toast(e.message,'err')}},
+  mreqFill:async el=>{
+    const cue=el.dataset.cue,done=async r=>{S.project=r.project||S.project;await Promise.all([loadAssets(),loadPlans(true),loadChat()]);
+      if(r.render!=='none'){S.wasBusy=true;S.autoView={at:null}}
+      toast(r.valid?`Đã gắn vào câu ${cue}`+(r.render==='queued'?' — đang dựng lại':r.render==='pending'?' — sẽ dựng lại ngay sau lần đang dựng':''):`Đã gắn nhưng bản dựng còn lỗi: ${(r.issues||[])[0]||''}`,r.valid?'ok':'err');renderAll()};
+    if(window.pywebview&&window.pywebview.api){
+      let paths=[];try{paths=await window.pywebview.api.pick_files('media',(S.dirs||{}).input_dir||'')}catch{}
+      if(!paths||!paths.length)return;
+      toast('Đang chuẩn hoá & gắn file…');
+      try{await done(await send('POST',`/projects/${S.pid}/media-requests/${cue}/fill`,{path:paths[0]},180000))}catch(e){toast(e.message,'err')}
+    }else{
+      const inp=document.createElement('input');inp.type='file';inp.accept='image/*,video/*';
+      inp.onchange=async()=>{const f=inp.files[0];if(!f)return;toast('Đang tải lên & gắn file…');const fd=new FormData();fd.append('file',f);
+        try{await done(await api(`/projects/${S.pid}/media-requests/${cue}/upload`,{method:'POST',body:fd}))}catch(e){toast(e.message,'err')}};
+      inp.click()}},
   fixHere:()=>{
     if(!S.pid)return toast('Hãy chọn một dự án trước','err');
     if(!S.cfg.has_api_key)return toast('Kết nối Claude trong ⚙ Cài đặt để dùng trợ lý AI','err');
@@ -1247,15 +1291,22 @@ const ACT={
     ACT.chatSend();
   },
   autofill:()=>{S.rtab='chat';runBusy(()=>send('POST',`/projects/${S.pid}/autofill`,{}),'Claude đang bổ sung phần còn thiếu — xem từng bước ở khung chat').then(()=>{loadChat().then(()=>{renderRight();scrollChat()})})},
+  loadSubsPaths:async srt=>{       // SRT/VTT chọn từ máy: nạp thẳng vào phụ đề (file cuối cùng thắng)
+    if(!srt.length)return false;
+    try{const r=await send('POST',`/projects/${S.pid}/srt/from-path`,{path:srt[srt.length-1]});await loadCues();
+      toast(`Đã nạp ${r.cue_count} câu phụ đề từ ${r.file}`+(r.issues.length?` (${r.issues.length} vấn đề — xem mục Kịch bản)`:'')+(srt.length>1?' — chỉ dùng file cuối':''),r.issues.length?'err':'ok');return true}
+    catch(e){toast(e.message,'err');return false}},
   linkFiles:async()=>{
     if(!S.pid)return toast('Hãy tạo dự án trước','err');
     if(!S.dirs)try{S.dirs=await api('/system/folders')}catch{}
     let paths=[];try{paths=await window.pywebview.api.pick_files('media',(S.dirs||{}).input_dir||'')}catch(e){return toast('Không mở được hộp thoại chọn file','err')}
     if(!paths||!paths.length)return;
-    const srt=paths.filter(x=>/\.(srt|vtt)$/i.test(x));if(srt.length)toast('File phụ đề: hãy nạp ở mục Kịch bản','err');
-    try{const r=await send('POST',`/projects/${S.pid}/assets/link`,{paths:paths.filter(x=>!/\.(srt|vtt)$/i.test(x))});
+    const srt=paths.filter(x=>/\.(srt|vtt)$/i.test(x)),media=paths.filter(x=>!/\.(srt|vtt)$/i.test(x));
+    const subs=await ACT.loadSubsPaths(srt);         // nạp SRT TRƯỚC để bước tự động thấy đã có phụ đề
+    if(!media.length){if(subs){await afterAdd(true);renderLeft();renderTimeline()}return}
+    try{const r=await send('POST',`/projects/${S.pid}/assets/link`,{paths:media});
       if(r.errors.length)toast(r.errors.join('\n'),'err');if(r.assets.length)toast(`Đã thêm ${r.assets.length} file (không sao chép)`,'ok');
-      await loadAssets();await afterAdd(r.assets.length>0);renderTimeline()}catch(e){toast(e.message,'err')}
+      await loadAssets();await afterAdd(r.assets.length>0||subs);renderTimeline()}catch(e){toast(e.message,'err')}
   },
   refreshCredits:async()=>{toast('Đang đọc số dư…');await loadCredits(true);S.storage=null;lSettings()},
   resetUsage:async el=>{if(!confirm('Đặt lại bộ đếm chi phí của nguồn này về 0?'))return;await send('POST','/credits/reset-usage',{id:el.dataset.id});loadCredits(true)},
@@ -1280,10 +1331,11 @@ const ACT={
   scanInputs:async()=>{try{S.inputs=await api('/system/folders/inputs');renderLeft()}catch(e){toast(e.message,'err')}},
   addInputs:async()=>{
     const paths=[...document.querySelectorAll('.flist input[type=checkbox]:checked')].map(x=>x.value);if(!paths.length)return toast('Chọn ít nhất 1 file','err');
-    const srt=paths.filter(x=>/\.srt$/i.test(x)),media=paths.filter(x=>!/\.srt$/i.test(x));
-    if(srt.length)toast('File phụ đề .srt: nạp ở mục Kịch bản','err');if(!media.length)return;
+    const srt=paths.filter(x=>/\.(srt|vtt)$/i.test(x)),media=paths.filter(x=>!/\.(srt|vtt)$/i.test(x));
+    const subs=await ACT.loadSubsPaths(srt);
+    if(!media.length){if(subs){await afterAdd(true);renderLeft();renderTimeline()}return}
     try{const r=await send('POST',`/projects/${S.pid}/assets/link`,{paths:media});if(r.errors.length)toast(r.errors.join('\n'),'err');
-      if(r.assets.length)toast(`Đã thêm ${r.assets.length} file từ thư mục đầu vào (không sao chép)`,'ok');await loadAssets();await afterAdd(r.assets.length>0);renderTimeline()}catch(e){toast(e.message,'err')}},
+      if(r.assets.length)toast(`Đã thêm ${r.assets.length} file từ thư mục đầu vào (không sao chép)`,'ok');await loadAssets();await afterAdd(r.assets.length>0||subs);renderTimeline()}catch(e){toast(e.message,'err')}},
   addConn:el=>{S.connForm={svc:el.dataset.svc,id:null};lSettings()},
   editConn:el=>{S.connForm={svc:el.dataset.svc,id:el.dataset.id};lSettings()},
   cancelConn:()=>{S.connForm=null;lSettings()},
@@ -1388,6 +1440,8 @@ document.addEventListener('change',async e=>{
     try{await send('POST','/connections',{service:t.dataset.svc,id:t.dataset.connEnabled,enabled:t.checked,force:true,set_active:false});await loadConns();lSettings()}catch(err){toast(err.message,'err')}
   }else if(t.id==='autoFillChk'){
     try{S.project=await api('/projects/'+S.pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...(S.project.settings||{}),autofill:t.checked}})});toast(t.checked?'Sẽ tự bổ sung bằng AI khi thêm file':'Đã tắt tự bổ sung','ok')}catch(err){toast(err.message,'err')}
+  }else if(t.id==='sttMode'){
+    try{S.cfg=await send('PUT','/settings',{stt_provider:t.value});toast('Đã lưu cách tạo phụ đề','ok');lSettings()}catch(err){toast(err.message,'err')}
   }else if(t.id==='autoMusicChk'){
     try{S.project=await api('/projects/'+S.pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...(S.project.settings||{}),auto_music:t.checked}})});await loadReady();toast(t.checked?'Claude sẽ tự chọn nhạc nền':'Đã tắt tự chọn nhạc nền','ok')}catch(err){toast(err.message,'err')}
   }else if(t.id==='bStyle'){S.bStyle=t.value;S.bMedia=null;lBroll();

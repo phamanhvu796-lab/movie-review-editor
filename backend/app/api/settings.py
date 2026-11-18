@@ -3,7 +3,7 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..config import clean_key, settings
 from ..version import __version__
@@ -12,6 +12,7 @@ from ..services.api_errors import friendly
 from ..services.llm_sources import default_name, mask_conn, test_connection
 from ..services.claude_client import get_client
 from ..services.ffmpeg_service import detect_hw_encoder
+from ..services import stt_service
 from ..utils.paths import find_binary
 
 router = APIRouter(prefix="/api")
@@ -21,6 +22,7 @@ class SettingsIn(BaseModel):
     anthropic_api_key: str | None = None
     claude_model: str | None = None
     whisper_model: str | None = None
+    stt_provider: str | None = Field(None, pattern="^(auto|elevenlabs|openai|local)$")
     elevenlabs_api_key: str | None = None
     openai_api_key: str | None = None
     openai_tts_model: str | None = None
@@ -44,6 +46,8 @@ def _status():
         "hw_encoder": detect_hw_encoder(),
         "ffmpeg": bool(find_binary("ffmpeg")), "ffprobe": bool(find_binary("ffprobe")),
         "whisper_available": importlib.util.find_spec("faster_whisper") is not None,
+        "stt_provider": stt_service.mode(),
+        "stt_api": [stt_service.LABELS[k] + " · " + (c.get("name") or "") for k, c in stt_service.providers()],
         "scenedetect_available": importlib.util.find_spec("scenedetect") is not None,
     }
 

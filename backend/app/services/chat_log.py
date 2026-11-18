@@ -33,9 +33,16 @@ def _write(pid: str, fn) -> list[dict]:
         return hist
 
 
-def append(pid: str, *msgs: dict) -> list[dict]:
+def append(pid: str, *msgs: dict, keep_progress: bool = False) -> list[dict]:
+    """Thêm tin nhắn. Mặc định xoá khung "đang làm…" (lượt đã xong); keep_progress=True: chèn lên trên khung đó."""
     stamp = now()
-    return _write(pid, lambda h: [m for m in h if m.get("kind") != "progress"] + [{"at": stamp, **m} for m in msgs])
+    new = [{"at": stamp, **m} for m in msgs]
+
+    def fn(h):
+        if keep_progress and h and h[-1].get("kind") == "progress":
+            return h[:-1] + new + [h[-1]]
+        return [m for m in h if m.get("kind") != "progress"] + new
+    return _write(pid, fn)
 
 
 def progress(pid: str, text: str) -> None:
@@ -45,7 +52,10 @@ def progress(pid: str, text: str) -> None:
         if h and h[-1].get("kind") == "progress":
             steps = list(h[-1].get("steps") or [])
             h = h[:-1]
-        if not steps or steps[-1] != text:
+        same = steps and steps[-1].split("…")[0] == text.split("…")[0]     # "…12%" -> "…37%": cập nhật tại chỗ
+        if same:
+            steps[-1] = text
+        else:
             steps.append(text)
         return h + [{"role": "assistant", "kind": "progress", "text": text, "steps": steps[-12:], "at": now()}]
     _write(pid, fn)

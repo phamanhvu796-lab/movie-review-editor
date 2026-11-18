@@ -10,7 +10,7 @@ from pathlib import Path
 from ..config import settings
 
 MEDIA_EXT = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg",
-             ".png", ".jpg", ".jpeg", ".webp", ".cube", ".srt"}
+             ".png", ".jpg", ".jpeg", ".webp", ".cube", ".srt", ".vtt"}
 
 
 def _videos_home() -> Path:

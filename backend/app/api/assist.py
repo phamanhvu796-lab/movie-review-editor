@@ -147,6 +147,16 @@ def _focus_text(db, p, plan: dict | None, t: float | None) -> str | None:
     return "\n".join(lines)
 
 
+def _media_text(p) -> str | None:
+    """Danh sách hình đang chờ người dùng tìm/vẽ -> đưa cho Claude để trò chuyện về prompt / chỗ tìm."""
+    items = [i for i in ((p.settings or {}).get("media_requests") or {}).get("items") or [] if i.get("status") == "open"]
+    if not items:
+        return None
+    rows = [f"- câu {i['cue']} [{i['start']:.1f}-{i['end']:.1f}s] {'CẦN VẼ' if i['need'] == 'draw' else 'CẦN TÌM'}: "
+            f"{i.get('what') or i['text']} | prompt: {(i.get('prompt') or '')[:300]}" for i in items[:40]]
+    return "media_requests (hình đang chờ người dùng tìm/vẽ):\n" + "\n".join(rows)
+
+
 def _render_quality(db, p, render_id: str | None) -> str:
     q = db.query(Render).filter_by(project_id=p.id)
     r = q.filter_by(id=render_id).first() if render_id else None
@@ -161,7 +171,9 @@ def _director_info(db, p) -> dict:
             "kịch bản → video (chưa có phim của người dùng)", "items": [{k: i[k] for k in ("label", "status", "detail")}
                                                                        for i in r["items"]],
             "current_style": (ps.get("broll") or {}).get("style") or ps.get("style") or None,
-            "has_render": db.query(Render).filter_by(project_id=p.id, status="completed").count() > 0}
+            "has_render": db.query(Render).filter_by(project_id=p.id, status="completed").count() > 0,
+            "media_requests_open": len([i for i in (ps.get("media_requests") or {}).get("items") or []
+                                        if i.get("status") == "open"])}
     if not r["film"]:
         info["styles"] = {x["id"]: x["label"] for x in styles.listing() if not x.get("disabled")}
     return info
@@ -246,8 +258,9 @@ def chat(pid: str, body: ChatIn, db=Depends(get_db)):
         row = db.query(EditPlanRow).filter_by(project_id=pid).order_by(EditPlanRow.version.desc()).first()
         opts = dict((p.settings or {}).get("render_opts") or {})
         try:
-            res = chat_service.chat_edit(ctx, row.plan if row else None, opts, _history(p), body.message.strip(),
-                                         focus=_focus_text(db, p, row.plan if row else None, body.at_time))
+            focus = "\n\n".join(x for x in (_focus_text(db, p, row.plan if row else None, body.at_time),
+                                                 _media_text(p)) if x) or None
+            res = chat_service.chat_edit(ctx, row.plan if row else None, opts, _history(p), body.message.strip(), focus=focus)
         except Exception as e:
             raise HTTPException(502, f"Gọi Claude lỗi: {friendly(e)}")
 
@@ -274,6 +287,10 @@ def chat(pid: str, body: ChatIn, db=Depends(get_db)):
         db.commit()
         if res["options"] != opts:
             chat_log.update_settings(pid, {"render_opts": res["options"]})
+        if res["actions"].get("media"):
+            from ..workers import media_worker
+            for m in res["actions"]["media"]:
+                media_worker.update_request(pid, m["cue"], prompt=m.get("prompt") or None, what=m.get("what") or None)
         chat_log.append(pid, user_msg, {"role": "assistant", "text": res["reply"], "notes": res["notes"],
                                         "version": out["plan_version"], "valid": out["valid"]})
         db.refresh(p)

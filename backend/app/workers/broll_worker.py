@@ -3,7 +3,6 @@
 Kịch bản (AI viết nếu chỉ có chủ đề) -> giọng đọc (AI, hoặc tách từ video người dẫn, hoặc file bạn tải) -> phụ đề SRT
 -> Claude chọn hình cho từng câu -> tải ảnh/video từ kho miễn phí bản quyền -> lắp bản dựng theo phong cách -> (xem thử).
 """
-import importlib.util
 import logging
 import shutil
 from concurrent.futures import ThreadPoolExecutor
@@ -12,7 +11,7 @@ from pathlib import Path
 from ..database import SessionLocal
 from ..models import Asset, EditPlanRow, Project, SrtCue
 from ..schemas import Cue
-from ..services import broll_service, factcheck_service, folders, script_service, stock_service, styles
+from ..services import broll_service, chat_log, factcheck_service, folders, script_service, stock_service, styles
 from ..services.api_errors import friendly
 from ..services.context_service import build_context
 from ..services.ffmpeg_service import probe, run_ffmpeg
@@ -124,9 +123,16 @@ def run_broll(pid: str, opts: dict):
             has_voice = db.query(Asset).filter(Asset.project_id == pid, Asset.asset_type == "voice",
                                                Asset.processing_status != "failed").count() > 0
             has_cues = db.query(SrtCue).filter_by(project_id=pid).count() > 0
+            if not script and has_cues:      # đã có SRT: lời trong SRT chính là kịch bản -> không nhờ AI viết
+                script = "\n".join(c.text for c in db.query(SrtCue).filter_by(project_id=pid).order_by(SrtCue.cue_index))
             pres = _presenter(db, pid) if style.get("needs_human") else None
             pres_info = {"id": pres.id, "name": pres.file_name, "path": pres.file_path, "duration": pres.duration_seconds or 0} if pres else None
 
+        if has_voice:
+            notes.append("Dùng file giọng đọc có sẵn — bỏ qua bước tạo giọng AI")
+        if has_cues and has_voice:
+            notes.append("Dùng file SRT có sẵn — bỏ qua bước nhận giọng nói")
+            _step(pid, "Đã có giọng đọc + SRT → vào thẳng bước edit…")
         # 1) Kịch bản
         if not script and not has_voice:
             if not opts.get("topic"):
@@ -201,11 +207,14 @@ def run_broll(pid: str, opts: dict):
             vdur = voice.duration_seconds or 0
         if not has_cues:
             whisper_err, whisper_ok = None, False
-            if importlib.util.find_spec("faster_whisper") is not None:
-                _step(pid, "Đang nghe giọng đọc để tạo phụ đề (Whisper)…")
+            from ..services.whisper_service import can_transcribe
+            if can_transcribe():
+                _step(pid, "Đang tạo phụ đề từ giọng đọc…")
                 try:
-                    analyze_worker.transcribe_project(pid, None, fail_project=False)
-                    notes.append("Đã tạo phụ đề bằng Whisper")
+                    analyze_worker.transcribe_project(pid, None, fail_project=False, script=script or None,
+                                                      progress=lambda f, t: _step(pid, t))
+                    notes.append("Đã căn phụ đề theo kịch bản (chữ đúng kịch bản, thời gian theo giọng đọc)"
+                                 if script else "Đã tạo phụ đề từ giọng đọc")
                     whisper_ok = True
                 except Exception as e:      # Whisper lỗi -> không dừng cả quy trình
                     log.warning("Whisper lỗi: %s", e)
@@ -218,10 +227,10 @@ def run_broll(pid: str, opts: dict):
                         db.add(SrtCue(project_id=pid, cue_index=c.index, start_seconds=c.start, end_seconds=c.end,
                                       text=c.text, language=lang))
                     db.commit()
-                notes.append(("Whisper lỗi (" + whisper_err + ") — " if whisper_err else "")
+                notes.append(("Tạo phụ đề lỗi (" + whisper_err + ") — " if whisper_err else "")
                              + "Phụ đề ước lượng theo kịch bản (nên kiểm tra ở mục Kịch bản)")
             else:
-                raise ValueError(("Whisper không tạo được phụ đề: " + whisper_err + ". " if whisper_err else "")
+                raise ValueError(("Không tạo được phụ đề từ giọng đọc: " + whisper_err + ". " if whisper_err else "")
                                  + "Hãy nạp file SRT ở mục Kịch bản, hoặc dán kịch bản để app ước lượng phụ đề")
         with SessionLocal() as db:
             cues = [Cue(index=c.cue_index, start=c.start_seconds, end=c.end_seconds, text=c.text)
@@ -240,14 +249,23 @@ def run_broll(pid: str, opts: dict):
         except OSError:
             keep_dir = None
         used_ids: set[str] = set()
+        missing: dict[int, dict] = {}                 # câu kho miễn phí không có hình hợp -> nhờ người dùng tìm/vẽ
         media_for_cue: dict[int, list[dict]] = {}
         fetched: dict[str, dict] = {}
         prev_pool: list[dict] | None = None
         pres_cues = {c.index for n, c in enumerate(cues) if pres_info and n % 3 == 0 and c.end <= pres_info["duration"] + 0.05}
+        with SessionLocal() as db:                    # hình bạn đã tự gắn cho từng câu -> giữ nguyên, không tìm lại
+            user_fill = {a.meta["user_fill"]: {"name": a.file_name, "duration": float(a.duration_seconds or 0),
+                                               "kind": a.meta.get("stock_kind") or "video"}
+                         for a in db.query(Asset).filter_by(project_id=pid, asset_type="broll").order_by(Asset.created_at)
+                         if (a.meta or {}).get("user_fill") and Path(a.file_path).exists()}
         todo = [c for c in cues if c.index not in pres_cues]
         with ThreadPoolExecutor(max_workers=4) as ex:
             for k, c in enumerate(todo, 1):
                 _step(pid, f"Đang tìm & tải hình minh hoạ {k}/{len(todo)}…")
+                if c.index in user_fill:
+                    media_for_cue[c.index] = prev_pool = [user_fill[c.index]]
+                    continue
                 shot = shots.get(c.index) or {"q": [topic], "kind": "video", "same_as_prev": True}
                 need = broll_service.shots_needed(c, float(style.get("pace") or 4))
                 if shot.get("same_as_prev") and prev_pool:
@@ -259,14 +277,32 @@ def run_broll(pid: str, opts: dict):
                 for r in results:
                     used_ids.add(r["item"]["id"])
                     fetched[r["name"]] = r
-                if not results and prev_pool:                     # không tìm được: giữ hình câu trước
-                    results = prev_pool
-                if not results:
-                    raise ValueError(f"Không tìm được hình cho câu {c.index}: “{c.text[:60]}”. "
-                                     "Thêm key Pexels/Pixabay ở Cài đặt, hoặc sửa câu cho cụ thể hơn.")
+                if not results:                                   # không tìm được: tạm dùng hình gần nhất, ghi lại để nhờ tìm
+                    missing[c.index] = shot
+                    if prev_pool:
+                        results = prev_pool
+                    else:
+                        continue
                 media_for_cue[c.index] = results
                 prev_pool = results
-        notes.append(f"Đã tải {len(fetched)} ảnh/video minh hoạ từ kho miễn phí bản quyền")
+        def _req(c, need, reason):
+            return {"cue": c.index, "start": c.start, "end": c.end, "text": c.text, "need": need, "reason": reason,
+                    "q": (shots.get(c.index) or {}).get("q") or []}
+        if not media_for_cue:                         # kho không có gì dùng được -> nhờ người dùng tìm cả, báo trong chat
+            from . import media_worker
+            media_worker.post_requests(pid, [_req(c, "draw" if style.get("photo_type") == "illustration" else "find",
+                                                  "kho miễn phí không có") for c in todo], {**style, "id": opts["style"]}, topic)
+            raise ValueError("Kho ảnh/video miễn phí không có hình hợp với kịch bản này — mình đã liệt kê hình cần tìm/vẽ "
+                             "trong khung chat. Hoặc thêm key Pexels/Pixabay ở ⚙ Cài đặt.")
+        first = next(media_for_cue[c.index] for c in todo if c.index in media_for_cue)
+        last_pool = first
+        for c in todo:                                # câu đầu chưa có hình -> tạm dùng hình tìm được đầu tiên
+            if c.index in media_for_cue:
+                last_pool = media_for_cue[c.index]
+            else:
+                media_for_cue[c.index] = last_pool
+        notes.append(f"Đã tải {len(fetched)} ảnh/video minh hoạ từ kho miễn phí bản quyền"
+                     + (f"; {len(missing)} câu chưa có hình hợp (tạm dùng hình gần nhất)" if missing else ""))
 
         # 6) Lắp bản dựng + lưu tài nguyên
         _step(pid, "Đang lắp bản dựng theo phong cách…")
@@ -314,6 +350,18 @@ def run_broll(pid: str, opts: dict):
         if any((i or {}).get("source") == "wikimedia" for i in items):
             notes.append("Có ảnh Wikimedia: nhớ dán danh sách nguồn (nút “Nguồn hình”) vào mô tả video")
         # 6b) Nhạc nền: Claude chọn trong kho Nhạc nền / nhạc miễn phí bản quyền
+        # 6a) Hình còn thiếu / cần vẽ -> Claude liệt kê trong khung chat (cần tìm + prompt vẽ), bạn gắn file vào từng câu
+        draw = style.get("photo_type") == "illustration"
+        req_items = [_req(c, "draw" if draw else "find", "kho miễn phí không có hình hợp" if c.index in missing
+                          else "phong cách cần ảnh vẽ") for c in todo
+                     if (draw or c.index in missing) and c.index not in user_fill]
+        if req_items:
+            from . import media_worker
+            _step(pid, "Claude đang liệt kê hình cần tìm / viết prompt vẽ…")
+            n = media_worker.post_requests(pid, req_items, {**style, "id": opts["style"]}, topic)
+            notes.append(f"Đã gửi vào chat {n} " + ("prompt vẽ cho từng câu" if draw else "câu cần bạn tìm thêm hình"))
+        else:
+            chat_log.update_settings(pid, {}, drop=("media_requests",))
         auto_metadata(pid, notes)
         if opts.get("music", True):
             auto_music(pid, notes)

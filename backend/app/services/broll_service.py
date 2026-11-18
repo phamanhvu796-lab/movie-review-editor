@@ -160,3 +160,20 @@ def build_plan(cues: list[Cue], media_for_cue: dict[int, list[dict]], style: dic
         uniq = sorted({(round(a, 3), round(b, 3)) for a, b in cl.scenes}, key=lambda r: (r[1] - r[0], r[0]))
         scenes[name] = [{"start": a, "end": b} for a, b in uniq]
     return plan, scenes
+
+
+def replace_cue_visuals(plan: dict, cue_index: int, visuals: list[dict]) -> dict:
+    """Thay hình của đúng một câu (giữ kiểu chuyển cảnh cũ). Không có câu đó -> ValueError."""
+    secs = [dict(x) for x in plan.get("sections") or []]
+    hit = False
+    for i, sec in enumerate(secs):
+        if sec.get("srt_index") == cue_index:
+            old = sec.get("visuals") or []
+            vis = [dict(v) for v in visuals]
+            if old and old[0].get("transition_in") and vis:
+                vis[0]["transition_in"] = old[0]["transition_in"]
+            secs[i] = {**sec, "visuals": vis}
+            hit = True
+    if not hit:
+        raise ValueError(f"Bản dựng hiện tại không có câu {cue_index}")
+    return {**plan, "sections": secs}

@@ -32,7 +32,7 @@ TOOL = {
             "type": "object", "properties": {
                 "op": {"type": "string", "enum": ["update_visual", "replace_visuals", "update_all_visuals", "update_section",
                                                    "set_render_option", "set_cue_text", "regenerate_plan", "render_preview",
-                                                   "auto_create"]},
+                                                   "auto_create", "update_media_request"]},
                 "srt_index": {"type": "integer", "description": "Câu thoại (section) cần sửa"},
                 "srt_indices": {"type": "array", "items": {"type": "integer"},
                                 "description": "update_all_visuals: chỉ áp cho các câu này (bỏ trống = cả video)"},
@@ -43,6 +43,8 @@ TOOL = {
                             "music_volume(0-1),music_ducking,vignette,film_grain,logo_position,logo_width_pct,logo_opacity,aspect_ratio,fps"},
                 "visuals": {"type": "array", "items": {"type": "object"}, "description": "replace_visuals: danh sách clip mới của section"},
                 "text": {"type": "string", "description": "set_cue_text: nội dung phụ đề mới"},
+                "prompt": {"type": "string", "description": "update_media_request: prompt vẽ mới (tiếng Anh) cho câu srt_index"},
+                "what": {"type": "string", "description": "update_media_request: mô tả hình cần tìm mới (tiếng Việt)"},
                 "style": {"type": "string", "description": "regenerate_plan / auto_create: phong cách mới"},
                 "quality": {"type": "string", "enum": ["preview", "final"],
                             "description": "auto_create: final = thành phẩm 1080p (mặc định), preview = xem thử 720p"},
@@ -66,6 +68,9 @@ Quy tắc khi sửa clip:
 - Yêu cầu làm lại toàn bộ hoặc chưa có bản dựng -> regenerate_plan. Muốn xem kết quả -> thêm render_preview.
 - Người dùng muốn AI TỰ LÀM TRỌN GÓI từ đầu ("tự động edit", "làm lại hết rồi xuất video") -> auto_create
   (phân tích, bản dựng mới, nhạc nền, xuất video); reply kể ngắn các bước sẽ làm.
+- Có danh sách HÌNH CẦN TÌM / CẦN VẼ (media_requests): người dùng hỏi về hình, nhờ viết lại/đổi phong cách prompt, hỏi tìm ở đâu
+  -> trả lời trong reply (viết prompt tiếng Anh đầy đủ trong reply) VÀ dùng update_media_request để cập nhật prompt/mô tả của câu đó.
+  Nhắc người dùng bấm 📎 Gắn file ở đúng câu khi đã có hình.
 - Không chắc người dùng muốn gì: không thao tác, hỏi lại ngắn gọn trong reply.
 - Câu hỏi về dự án: trả lời trong reply, operations rỗng."""
 
@@ -166,6 +171,11 @@ def apply_operations(plan: dict | None, ops: list[dict], options: dict) -> tuple
             elif op == "regenerate_plan":
                 actions["regenerate"] = {"style": o.get("style")}
                 notes.append("Tạo lại toàn bộ bản dựng")
+            elif op == "update_media_request":
+                if o.get("srt_index") is not None and (o.get("prompt") or o.get("what")):
+                    actions.setdefault("media", []).append({"cue": int(o["srt_index"]), "prompt": o.get("prompt"),
+                                                            "what": o.get("what")})
+                    notes.append(f"Cập nhật hình cần cho câu {o['srt_index']}")
             elif op == "auto_create":
                 actions["auto"] = {"style": o.get("style"), "quality": o.get("quality") or "final"}
                 notes.append("Tự động làm trọn gói")
@@ -220,6 +230,7 @@ def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[
         actions["regenerate"] = acts["regenerate"] or actions["regenerate"]
         actions["cue_texts"].update(acts["cue_texts"])
         actions["auto"] = acts["auto"] or actions["auto"]
+        actions.setdefault("media", []).extend(acts.get("media") or [])
         if cand is None or cand == (plan if attempt == 0 else new_plan):
             new_plan = cand
             issues = []
@@ -261,7 +272,9 @@ bản quyền theo từng câu. `project` cho biết tình trạng từng mục 
 - Người dùng bấm nút ⚡ Tự động hoặc nhờ làm video -> action auto_create, reply = kế hoạch ngắn theo đúng tài nguyên đang có.
 - Mục nào 'user' (vd không có giọng đọc và không có key TTS) mà quy trình cần -> vẫn auto_create nếu phần còn lại làm được,
   nhưng nói rõ cần bổ sung gì; nếu không thể bắt đầu -> action none và hỏi người dùng đúng thứ còn thiếu.
-- Câu hỏi thường -> action none, trả lời ngắn. Không bịa tính năng."""
+- Câu hỏi thường -> action none, trả lời ngắn. Không bịa tính năng.
+- Bạn chỉ thao tác được BÊN TRONG app (không sửa mã nguồn, không cài đặt máy). Gặp lỗi kỹ thuật: giải thích ngắn bằng lời
+  dễ hiểu và chỉ cách xử lý trong app (vd nạp file SRT ở mục Kịch bản, dán kịch bản, kiểm tra ⚙ Cài đặt). Không dùng markdown tiêu đề."""
 
 
 def director(info: dict, history: list[dict], message: str, client=None) -> dict:
@@ -305,3 +318,60 @@ def summarize(data: dict, client=None) -> str:
                                   system=SUMMARY_SYSTEM,
                                   messages=[{"role": "user", "content": json.dumps(data, ensure_ascii=False)}])
     return "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text").strip()
+
+
+# ------------------------------------------------------------------ hình còn thiếu: danh sách cần tìm / prompt cần vẽ
+MEDIA_TOOL = {
+    "name": "media_requests",
+    "description": "Danh sách hình/video người dùng cần tự tìm hoặc vẽ cho từng câu.",
+    "input_schema": {"type": "object", "properties": {
+        "intro": {"type": "string", "description": "1-2 câu tiếng Việt mở đầu tin nhắn chat (thân thiện, nói rõ cần làm gì)."},
+        "items": {"type": "array", "items": {"type": "object", "properties": {
+            "cue": {"type": "integer"},
+            "what": {"type": "string", "description": "Tiếng Việt: hình cần có (chủ thể, bối cảnh, góc máy), 1 câu."},
+            "keywords": {"type": "array", "items": {"type": "string"}, "maxItems": 4,
+                         "description": "Từ khoá tìm (tiếng Anh + tiếng Việt) cho Google Images / kho ảnh."},
+            "where": {"type": "string", "description": "Gợi ý nơi tìm (vd Pexels, Wikimedia Commons, kho ảnh báo chí có bản quyền…)."},
+            "prompt": {"type": "string", "description": "Prompt TIẾNG ANH để vẽ bằng AI tạo ảnh (Midjourney / DALL·E / Ideogram…): "
+                       "chủ thể, hành động, bối cảnh, phong cách vẽ, ánh sáng, màu, bố cục, tỉ lệ khung. Không chữ trong ảnh."},
+        }, "required": ["cue", "what", "prompt"]}},
+    }, "required": ["intro", "items"]},
+}
+
+MEDIA_SYSTEM = """Bạn là trợ lý hình ảnh cho video {kind} — phong cách "{label}", khung hình {aspect}.
+Mỗi mục là một câu lời đọc cần hình. need = "draw": cần ẢNH VẼ (hoạt hình/minh hoạ) -> prompt phải thật cụ thể, cùng một phong cách vẽ
+nhất quán cho cả video ({art}). need = "find": kho ảnh miễn phí không có hình hợp -> mô tả + từ khoá để người dùng tự tìm (vẫn viết
+prompt để họ có thể vẽ thay). Prompt kết thúc bằng tham số tỉ lệ khung, vd "--ar {ar}". Không đưa người thật/nhân vật có bản quyền vào prompt;
+nhân vật lịch sử thì mô tả trang phục, thời kỳ, bối cảnh."""
+
+
+def media_requests(items: list[dict], style: dict, topic: str, client=None, batch: int = 40) -> dict:
+    """items: [{cue, start, end, text, need: find|draw, q: [...]}] -> {intro, items:[...+what/keywords/where/prompt]}."""
+    from .styles import GROUPS
+    client = client or get_client()
+    aspect = style.get("aspect") or "16:9"
+    system = MEDIA_SYSTEM.format(kind=GROUPS.get(style.get("group"), "thông tin"), label=style.get("label", ""), aspect=aspect,
+                                 ar=aspect, art=style.get("hint") or "flat 2D illustration")
+    out, intro = {}, ""
+    for k in range(0, len(items), batch):
+        part = items[k:k + batch]
+        body = {"topic": topic, "items": [{"cue": i["cue"], "text": i["text"], "need": i["need"], "tried_keywords": i.get("q") or []}
+                                          for i in part]}
+        resp = client.messages.create(model=settings.claude_fast_model or settings.claude_model, max_tokens=8000, system=system,
+                                      tools=[MEDIA_TOOL], tool_choice={"type": "tool", "name": "media_requests"},
+                                      messages=[{"role": "user", "content": json.dumps(body, ensure_ascii=False)}])
+        block = next((b for b in resp.content if getattr(b, "type", "") == "tool_use"), None)
+        d = (block.input or {}) if block else {}
+        intro = intro or (d.get("intro") or "").strip()
+        for it in d.get("items") or []:
+            try:
+                out[int(it["cue"])] = it
+            except (KeyError, TypeError, ValueError):
+                continue
+    res = []
+    for i in items:
+        g = out.get(i["cue"]) or {}
+        res.append({**i, "what": (g.get("what") or i["text"]).strip(),
+                    "keywords": [x for x in (g.get("keywords") or i.get("q") or []) if isinstance(x, str)][:4],
+                    "where": (g.get("where") or "").strip(), "prompt": (g.get("prompt") or "").strip()})
+    return {"intro": intro, "items": res}

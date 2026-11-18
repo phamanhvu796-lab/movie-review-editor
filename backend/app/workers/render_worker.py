@@ -92,6 +92,29 @@ def notify_chat(db, p: Project, r: Render, seconds: float | None = None, error: 
         log.debug("notify chat", exc_info=True)
 
 
+def rerender_soon(db, p: Project, quality: str | None = None) -> str:
+    """Dựng lại bản dựng hợp lệ mới nhất (báo trong chat khi xong). Đang dựng -> ghi nhớ, dựng ngay sau lần hiện tại.
+    Trả "queued" | "pending" | "none"."""
+    from ..services import chat_log
+    from ..utils.paths import find_binary
+    if not find_binary("ffmpeg"):
+        return "none"
+    if quality is None:
+        last = (db.query(Render).filter_by(project_id=p.id, status="completed").order_by(Render.completed_at.desc()).first())
+        quality = ((last.options or {}).get("quality") if last else None) or "preview"
+    db.refresh(p)
+    if p.status in ("rendering", "analyzing"):
+        chat_log.update_settings(p.id, {"rerender_pending": {"quality": quality}, "chat_notify": True})
+        return "pending"
+    row = latest_valid_plan(db, p.id)
+    if row is None:
+        return "none"
+    chat_log.update_settings(p.id, {"chat_notify": True})
+    db.refresh(p)
+    queue_render(db, p, row.id, quality)
+    return "queued"
+
+
 def run_render(render_id: str):
     with SessionLocal() as db:
         r = db.get(Render, render_id)

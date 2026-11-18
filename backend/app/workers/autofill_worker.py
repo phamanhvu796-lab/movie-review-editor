@@ -4,7 +4,6 @@ Thứ tự: phân tích cảnh -> (AI gắn nhãn cảnh nếu phải tự viế
 (ElevenLabs/OpenAI) -> phụ đề (từ giọng AI, Whisper, hoặc ước lượng theo kịch bản) -> Claude lên bản dựng -> tiêu đề/mô tả.
 Không tự xuất video (tiết kiệm CPU và ổ đĩa) — người dùng bấm xem nhanh hoặc xuất khi muốn.
 """
-import importlib.util
 import logging
 
 from ..config import settings
@@ -29,17 +28,21 @@ def readiness(db, p: Project) -> dict:
     """Bảng kiểm tra: mỗi mục ok | ai (AI sẽ tự bổ sung) | user (cần người dùng) | optional."""
     assets = db.query(Asset).filter_by(project_id=p.id).all()
     foot = [a for a in assets if a.asset_type in ("footage", "broll") and a.processing_status != "failed"
-            and not (a.meta or {}).get("stock")]      # hình tải từ kho (Kịch bản → Video) không tính là footage phim
+            and not (a.meta or {}).get("stock") and not (a.meta or {}).get("user_fill")]   # hình minh hoạ ≠ footage phim
     voice = any(a.asset_type == "voice" and a.processing_status != "failed" for a in assets)
     cues = db.query(SrtCue).filter_by(project_id=p.id).count()
     plan = db.query(EditPlanRow).filter_by(project_id=p.id).count()
     ps = p.settings or {}
     script = bool((ps.get("script") or "").strip())
     llm, tts = bool(settings.anthropic_api_key), _has_tts()
-    whisper = importlib.util.find_spec("faster_whisper") is not None
+    from ..services import stt_service
+    from ..services.whisper_service import local_available
+    stt_api = stt_service.providers()
+    whisper = bool(stt_api) or local_available()
+    stt_label = stt_service.LABELS[stt_api[0][0]] if stt_api else "Whisper trên máy"
     scenes_ok = bool(foot) and all((a.meta or {}).get("scenes") for a in foot)
     has_music = any(a.asset_type == "music" and a.processing_status != "failed" for a in assets)
-    stock = [a for a in assets if (a.meta or {}).get("stock")]
+    stock = [a for a in assets if (a.meta or {}).get("stock") or (a.meta or {}).get("user_fill")]
     if foot:
         foot_item = ("footage", "Footage phim", "ok", f"{len(foot)} file")
         scene_item = ("scenes", "Phân tích cảnh", "ok" if scenes_ok else "ai", "" if scenes_ok else "Tự phát hiện cảnh")
@@ -61,7 +64,7 @@ def readiness(db, p: Project) -> dict:
          "" if voice else (f"Tạo giọng AI ({'ElevenLabs' if tts == 'elevenlabs' else 'OpenAI'})" if tts
                            else "Tải voice-over lên, hoặc thêm key ElevenLabs/OpenAI TTS ở Cài đặt")),
         ("subtitles", "Phụ đề", "ok" if cues else ("ai" if (tts or voice or script) else "user"),
-         "" if cues else ("Tạo cùng giọng AI" if (not voice and tts) else ("Whisper nghe giọng đọc" if whisper else "Ước lượng theo kịch bản"))),
+         "" if cues else ("Tạo cùng giọng AI" if (not voice and tts) else (stt_label + " nghe giọng đọc" if whisper else "Ước lượng theo kịch bản"))),
         ("plan", "Bản dựng", "ok" if plan else ("ai" if llm else "user"), "" if plan else ("Claude lên bản dựng" if llm else "Cần kết nối Claude")),
         ("metadata", "Tiêu đề / mô tả", "ok" if ps.get("metadata") else ("ai" if llm else "optional"), ""),
         ("music", "Nhạc nền", "ok" if has_music else ("ai" if music_auto else "optional"),
@@ -340,13 +343,20 @@ def run_autofill(pid: str, opts: dict | None = None):
         if not vpath:
             _finish(pid, None, notes + ["Cần giọng đọc: tải voice-over lên, hoặc dán kịch bản ở mục Giọng AI và thêm key ElevenLabs/OpenAI TTS."])
             return
+        if st["voice"] == "ok":
+            notes.append("Dùng file giọng đọc có sẵn — bỏ qua bước tạo giọng AI")
+        if has_cues:
+            notes.append("Dùng file SRT có sẵn — bỏ qua bước nhận giọng nói")
         if not has_cues:
             whisper_err, whisper_ok = None, False
-            if importlib.util.find_spec("faster_whisper") is not None:
-                _step(pid, "Đang tạo phụ đề từ giọng đọc (Whisper)…")
+            from ..services.whisper_service import can_transcribe
+            if can_transcribe():
+                _step(pid, "Đang tạo phụ đề từ giọng đọc…")
                 try:
-                    analyze_worker.transcribe_project(pid, None, fail_project=False)
-                    notes.append("Đã tạo phụ đề bằng Whisper")
+                    analyze_worker.transcribe_project(pid, None, fail_project=False, script=script or None,
+                                                      progress=lambda f, t: _step(pid, t))
+                    notes.append("Đã căn phụ đề theo kịch bản (chữ đúng kịch bản, thời gian theo giọng đọc)"
+                                 if script else "Đã tạo phụ đề từ giọng đọc")
                     whisper_ok = True
                 except Exception as e:      # Whisper lỗi -> không dừng cả quy trình
                     log.warning("Whisper lỗi: %s", e)
@@ -360,10 +370,10 @@ def run_autofill(pid: str, opts: dict | None = None):
                         db.add(SrtCue(project_id=pid, cue_index=c.index, start_seconds=c.start, end_seconds=c.end,
                                       text=c.text, language=p.language))
                     db.commit()
-                notes.append(("Whisper lỗi (" + whisper_err + ") — " if whisper_err else "")
+                notes.append(("Tạo phụ đề lỗi (" + whisper_err + ") — " if whisper_err else "")
                              + "Phụ đề được ước lượng theo kịch bản (nên kiểm tra lại thời gian ở mục Kịch bản)")
             else:
-                _finish(pid, None, notes + [("Whisper không tạo được phụ đề: " + whisper_err + ". " if whisper_err else "")
+                _finish(pid, None, notes + [("Không tạo được phụ đề từ giọng đọc: " + whisper_err + ". " if whisper_err else "")
                                             + "Thiếu phụ đề: nạp file SRT ở mục Kịch bản (hoặc dán kịch bản để AI ước lượng)."])
                 return
 

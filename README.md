@@ -31,6 +31,40 @@ Không build chéo được: phải build trên Windows để ra file .exe.
 ## Chạy thử không build
 `run_dev.bat` (Windows) hoặc `./run_dev.sh` (Linux/macOS, cần ffmpeg trong PATH).
 
+## Mới trong v1.11.0 — Hình còn thiếu & prompt vẽ ngay trong chat
+
+- Kho ảnh/video miễn phí không có hình hợp cho câu nào: video vẫn dựng (tạm dùng hình gần nhất), và Claude **liệt kê trong khung chat**
+  từng câu cần bạn tìm: thời điểm, hình cần có, từ khoá (bấm để sao chép), nơi nên tìm.
+- Phong cách **hoạt hình / minh hoạ** (Lịch sử hoạt hình, Tài chính hoạt hình…): Claude viết **prompt vẽ tiếng Anh** cho từng câu,
+  cùng một phong cách vẽ cho cả video, đúng tỉ lệ khung (`--ar 16:9` / `9:16`) — dùng cho Midjourney, DALL·E, Ideogram, Leonardo…
+  Có nút “⧉ Sao chép tất cả prompt”.
+- Mỗi câu có **📎 Gắn file**: chọn ảnh/video bạn tìm hoặc vẽ → app chuẩn hoá khung hình, thay đúng câu đó, kiểm tra và dựng lại ngầm.
+  File gốc được lưu vào Thư mục đầu vào / Tài nguyên AI / <dự án>. Chạy ⚡ lại vẫn giữ hình bạn đã gắn.
+- Trò chuyện tiếp: “viết lại prompt câu 5 kiểu Pixar”, “câu 7 tìm ở đâu?” — Claude trả lời và cập nhật luôn prompt trong danh sách.
+- Kho không có hình nào hợp: không còn dừng với lỗi — Claude gửi danh sách cần tìm/vẽ vào chat.
+
+## Bản sửa v1.10.1 — Có sẵn MP3 / SRT thì vào thẳng bước edit
+
+- Đã có file voice MP3 → không gọi API tạo giọng (TTS). Đã có file SRT → không nhận giọng nói; khung chat ghi rõ bước nào được bỏ qua.
+- Sửa lỗi: chọn file bằng hộp thoại của app hoặc quét thư mục đầu vào trước đây **bỏ rơi file .srt** (chỉ báo “nạp ở mục Kịch bản”) → app tưởng chưa có phụ đề và đi nghe giọng đọc. Giờ SRT/VTT được nạp ngay; hộp thoại chọn file hiện cả .srt/.vtt; mục Kịch bản có nút “📂 Chọn SRT trên máy”.
+- Có SRT mà chưa có MP3 (chế độ Kịch bản → Video): lời trong SRT được dùng làm kịch bản, không nhờ AI viết lại.
+- Đọc được SRT mã hoá UTF-16 / Windows-1258.
+
+## Mới trong v1.10.0 — Phụ đề bằng API (nhanh nhất)
+
+- API Claude không nhận được âm thanh, nên bước “nghe giọng đọc → phụ đề” giờ gọi **API nhận giọng nói** bằng key bạn đã gắn ở mục Giọng AI:
+  **ElevenLabs Scribe v2** (ưu tiên) hoặc **OpenAI whisper-1**. File 5 phút thường xong trong vài chục giây, máy không bị nặng.
+- Có kịch bản: chữ phụ đề lấy đúng theo kịch bản, chỉ lấy thời gian từ giọng đọc.
+- Không có key / API lỗi: tự chuyển sang Whisper trên máy (bản Setup). Bản Portable giờ cũng tạo được phụ đề nhờ API.
+- Chọn cách nghe giọng đọc: ⚙ Cài đặt → “Phụ đề từ giọng đọc”.
+
+## Bản sửa v1.9.1 — Tạo phụ đề nhanh hơn nhiều
+
+- Có kịch bản + voice MP3: Whisper chỉ dùng mô hình nhỏ “base” để lấy **thời gian**, chữ phụ đề lấy **đúng theo kịch bản** (không sai chính tả) — nhanh gấp ~4–8 lần. Kịch bản không khớp giọng đọc thì tự nghe lại đầy đủ.
+- Có card NVIDIA: Whisper chạy GPU; GPU thiếu thư viện CUDA thì tự chuyển CPU (không báo lỗi).
+- Khung chat hiện % tiến độ “Đang nghe giọng đọc… 45%” và báo khi đang tải mô hình Whisper lần đầu.
+- Lưu ý: Whisper chạy trên máy bạn nên **không tốn tín dụng API Claude**; Claude chỉ tốn tín dụng ở các bước lên bản dựng, chọn hình, chọn nhạc, tổng kết.
+
 ## Mới trong v1.9.0 — Tự động edit = trò chuyện với Claude
 
 - Bấm **⚡ Tự động edit** (thanh trên cùng, khung chat, thẻ Tình trạng dự án) là ra lệnh cho Claude ngay trong **khung chat Trợ lý AI**:

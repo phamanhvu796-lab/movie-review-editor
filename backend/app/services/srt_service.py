@@ -97,3 +97,14 @@ def merge_short_cues(cues: list[Cue], min_len: float = 1.2) -> list[Cue]:
         a, b = out[0], out[1]
         out[:2] = [Cue(index=a.index, start=a.start, end=b.end, text=f"{a.text} {b.text}".strip())]
     return [Cue(index=i, start=c.start, end=c.end, text=c.text) for i, c in enumerate(out, 1)]
+
+
+def decode_subs(raw: bytes) -> str:
+    """Đọc file phụ đề với mọi kiểu mã hoá hay gặp: UTF-8 (có/không BOM), UTF-16 (Aegisub, một số app Windows),
+    Windows-1258 (tiếng Việt cũ)."""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16")
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return raw.decode("cp1258", errors="replace")
