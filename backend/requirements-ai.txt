@@ -1,3 +1,6 @@
 # Tuỳ chọn nhưng cần cho tính năng đầy đủ (Whisper + scene detection). Nặng ~1GB khi đóng gói.
 faster-whisper>=1.0
 scenedetect[opencv-headless]>=0.6.4
+# PyAV (faster-whisper dùng): bản mới đã bỏ tham số metadata_errors của av.open() -> giữ bản tương thích.
+# App tự giải mã âm thanh bằng FFmpeg nên không phụ thuộc vào điểm này, đây chỉ là lớp an toàn thêm.
+av>=11,<17

@@ -1,3 +1,4 @@
+import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,6 +12,8 @@ from ..services.render_service import RES, RenderOptions, render_video
 from ..services.srt_service import to_srt
 from ..utils.paths import data_dir
 from .pool import CANCELLED, submit_render
+
+log = logging.getLogger("mre.render")
 
 
 def queue_render(db, p: Project, plan_id: str, quality: str = "preview") -> Render:
@@ -60,6 +63,35 @@ def rerender_if_pending(db, p: Project) -> Render | None:
         return None
 
 
+def _fmt_dur(sec: float | None) -> str:
+    sec = int(round(sec or 0))
+    return f"{sec // 60}:{sec % 60:02d}"
+
+
+def notify_chat(db, p: Project, r: Render, seconds: float | None = None, error: str | None = None) -> None:
+    """Lần xuất do Claude khởi động (tự động edit / sửa qua chat) xong -> báo ngay trong khung chat."""
+    try:
+        db.refresh(p)
+        st = p.settings or {}
+        if not st.get("chat_notify"):
+            return
+        from ..services import chat_log
+        chat_log.update_settings(p.id, {}, drop=("chat_notify",))
+        q = (r.options or {}).get("quality", "preview")
+        if error:
+            msg = {"role": "assistant", "kind": "error",
+                   "text": f"❌ Xuất video bị lỗi: {error[:300]}. Bạn nhắn “xuất lại” hoặc mô tả điều muốn đổi, mình thử lại nhé."}
+        else:
+            label = "thành phẩm" if q == "final" else "bản xem thử"
+            more = " Mình đang dựng tiếp bản có thay đổi mới nhất của bạn." if st.get("rerender_pending") else ""
+            msg = {"role": "assistant", "kind": "render", "render_id": r.id, "quality": q, "path": r.output_path,
+                   "text": f"✅ Xong {label} {r.resolution}, dài {_fmt_dur(seconds)} — đã lưu: {Path(r.output_path).name}. "
+                           "Bạn xem thử nhé; chỗ nào chưa ưng thì dừng video ở đó, bấm 📍 Sửa đoạn này rồi nói mình sửa." + more}
+        chat_log.append(p.id, msg)
+    except Exception:
+        log.debug("notify chat", exc_info=True)
+
+
 def run_render(render_id: str):
     with SessionLocal() as db:
         r = db.get(Render, render_id)
@@ -106,6 +138,7 @@ def run_render(render_id: str):
                     storage_service.prune_old_previews(db, keep=1, project_id=p.id)
                 except Exception:
                     pass
+            notify_chat(db, p, r, voice.duration_seconds or cues[-1].end)
             rerender_if_pending(db, p)
         except RenderCancelled:
             r.status, p.status = "cancelled", "plan_ready"
@@ -114,6 +147,7 @@ def run_render(render_id: str):
         except Exception as e:
             r.status, r.error_message, p.status, p.error_message = "failed", str(e)[:2000], "failed", str(e)[:1000]
             db.commit()
+            notify_chat(db, p, r, error=str(e))
             if rerender_if_pending(db, p) is None:
                 raise
         finally:

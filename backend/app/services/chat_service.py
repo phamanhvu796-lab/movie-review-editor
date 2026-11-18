@@ -31,7 +31,8 @@ TOOL = {
         "operations": {"type": "array", "description": "Danh sách thao tác theo thứ tự. Rỗng nếu chỉ trả lời câu hỏi.", "items": {
             "type": "object", "properties": {
                 "op": {"type": "string", "enum": ["update_visual", "replace_visuals", "update_all_visuals", "update_section",
-                                                   "set_render_option", "set_cue_text", "regenerate_plan", "render_preview"]},
+                                                   "set_render_option", "set_cue_text", "regenerate_plan", "render_preview",
+                                                   "auto_create"]},
                 "srt_index": {"type": "integer", "description": "Câu thoại (section) cần sửa"},
                 "srt_indices": {"type": "array", "items": {"type": "integer"},
                                 "description": "update_all_visuals: chỉ áp cho các câu này (bỏ trống = cả video)"},
@@ -42,7 +43,9 @@ TOOL = {
                             "music_volume(0-1),music_ducking,vignette,film_grain,logo_position,logo_width_pct,logo_opacity,aspect_ratio,fps"},
                 "visuals": {"type": "array", "items": {"type": "object"}, "description": "replace_visuals: danh sách clip mới của section"},
                 "text": {"type": "string", "description": "set_cue_text: nội dung phụ đề mới"},
-                "style": {"type": "string", "description": "regenerate_plan: phong cách mới"},
+                "style": {"type": "string", "description": "regenerate_plan / auto_create: phong cách mới"},
+                "quality": {"type": "string", "enum": ["preview", "final"],
+                            "description": "auto_create: final = thành phẩm 1080p (mặc định), preview = xem thử 720p"},
             }, "required": ["op"]}},
     }, "required": ["reply", "operations"]},
 }
@@ -61,6 +64,8 @@ Quy tắc khi sửa clip:
 - Thay đổi áp cho nhiều clip (vd "màu điện ảnh toàn bộ", "thêm zoom chậm") -> dùng update_all_visuals.
 - Đổi cỡ chữ/màu phụ đề, nhạc nền, logo, khung hình -> set_render_option.
 - Yêu cầu làm lại toàn bộ hoặc chưa có bản dựng -> regenerate_plan. Muốn xem kết quả -> thêm render_preview.
+- Người dùng muốn AI TỰ LÀM TRỌN GÓI từ đầu ("tự động edit", "làm lại hết rồi xuất video") -> auto_create
+  (phân tích, bản dựng mới, nhạc nền, xuất video); reply kể ngắn các bước sẽ làm.
 - Không chắc người dùng muốn gì: không thao tác, hỏi lại ngắn gọn trong reply.
 - Câu hỏi về dự án: trả lời trong reply, operations rỗng."""
 
@@ -100,7 +105,7 @@ def apply_operations(plan: dict | None, ops: list[dict], options: dict) -> tuple
     """Áp thao tác. Trả (plan mới, render_options mới, hành động {regenerate, render, cue_texts}, ghi chú)."""
     plan = deepcopy(plan) if plan else None
     options = dict(options or {})
-    actions: dict = {"regenerate": None, "render": False, "cue_texts": {}}
+    actions: dict = {"regenerate": None, "render": False, "cue_texts": {}, "auto": None}
     notes: list[str] = []
     by_idx = {s.get("srt_index"): s for s in (plan or {}).get("sections") or []}
 
@@ -161,6 +166,9 @@ def apply_operations(plan: dict | None, ops: list[dict], options: dict) -> tuple
             elif op == "regenerate_plan":
                 actions["regenerate"] = {"style": o.get("style")}
                 notes.append("Tạo lại toàn bộ bản dựng")
+            elif op == "auto_create":
+                actions["auto"] = {"style": o.get("style"), "quality": o.get("quality") or "final"}
+                notes.append("Tự động làm trọn gói")
             elif op == "render_preview":
                 actions["render"] = True
                 notes.append("Dựng video xem thử")
@@ -179,6 +187,8 @@ def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[
     ]
     msgs = []
     for h in history[-8:]:          # vài lượt gần nhất để hiểu ngữ cảnh "làm tiếp", "như vừa nãy"
+        if h.get("kind") == "progress":
+            continue
         role = "assistant" if h.get("role") == "assistant" else "user"
         if msgs and msgs[-1]["role"] == role:
             msgs[-1]["content"] += "\n" + h.get("text", "")
@@ -194,7 +204,7 @@ def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[
     else:
         msgs.append({"role": "user", "content": content})
 
-    new_plan, new_opts, actions, notes, issues, reply = plan, options, {"regenerate": None, "render": False, "cue_texts": {}}, [], [], ""
+    new_plan, new_opts, actions, notes, issues, reply = plan, options, {"regenerate": None, "render": False, "cue_texts": {}, "auto": None}, [], [], ""
     for attempt in range(2):
         resp = client.messages.create(model=settings.claude_model, max_tokens=6000, system=SYSTEM, tools=[TOOL],
                                       tool_choice={"type": "tool", "name": TOOL_NAME}, messages=msgs)
@@ -209,6 +219,7 @@ def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[
         actions["render"] = actions["render"] or acts["render"]
         actions["regenerate"] = acts["regenerate"] or actions["regenerate"]
         actions["cue_texts"].update(acts["cue_texts"])
+        actions["auto"] = acts["auto"] or actions["auto"]
         if cand is None or cand == (plan if attempt == 0 else new_plan):
             new_plan = cand
             issues = []
@@ -226,3 +237,71 @@ def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[
     changed = new_plan is not None and new_plan != plan
     return {"reply": reply, "plan": new_plan if changed else None, "options": new_opts, "actions": actions,
             "notes": notes, "issues": [str(i) for i in issues]}
+
+
+
+# ------------------------------------------------------------------ chế độ "đạo diễn": chưa có bản dựng / bấm ⚡ Tự động
+DIRECTOR_TOOL = {
+    "name": "director",
+    "description": "Trả lời người dùng và (nếu cần) bắt đầu tự động làm video.",
+    "input_schema": {"type": "object", "properties": {
+        "reply": {"type": "string", "description": "Trả lời thân thiện, ngắn (2-5 câu), ngôn ngữ của người dùng. Nếu bắt đầu làm: "
+                  "nói rõ các bước sẽ làm dựa trên tài nguyên đang có. Nếu thiếu thứ chỉ người dùng cung cấp được: hỏi đúng thứ đó."},
+        "action": {"type": "string", "enum": ["none", "auto_create"]},
+        "style": {"type": "string", "description": "auto_create: mã phong cách (chỉ khi người dùng nêu/ngụ ý; trống = giữ như cũ)"},
+        "topic": {"type": "string", "description": "auto_create: chủ đề nếu người dùng vừa nêu (dùng khi chưa có kịch bản)"},
+        "quality": {"type": "string", "enum": ["preview", "final"]},
+    }, "required": ["reply", "action"]},
+}
+
+DIRECTOR_SYSTEM = """Bạn là Claude, trợ lý dựng video trong ứng dụng Movie Review Editor, trò chuyện với người dùng ở khung chat.
+Bạn điều khiển quy trình TỰ ĐỘNG EDIT: phân tích footage/cảnh -> (viết kịch bản, tạo giọng, phụ đề nếu thiếu) -> lên bản dựng ->
+chọn nhạc nền -> xuất video. Không có phim của người dùng thì làm chế độ Kịch bản -> Video: tự tìm ảnh/video minh hoạ miễn phí
+bản quyền theo từng câu. `project` cho biết tình trạng từng mục (ok / ai = AI tự làm được / user = cần người dùng / optional).
+- Người dùng bấm nút ⚡ Tự động hoặc nhờ làm video -> action auto_create, reply = kế hoạch ngắn theo đúng tài nguyên đang có.
+- Mục nào 'user' (vd không có giọng đọc và không có key TTS) mà quy trình cần -> vẫn auto_create nếu phần còn lại làm được,
+  nhưng nói rõ cần bổ sung gì; nếu không thể bắt đầu -> action none và hỏi người dùng đúng thứ còn thiếu.
+- Câu hỏi thường -> action none, trả lời ngắn. Không bịa tính năng."""
+
+
+def director(info: dict, history: list[dict], message: str, client=None) -> dict:
+    client = client or get_client()
+    msgs = []
+    for h in history[-8:]:
+        if h.get("kind") == "progress":
+            continue
+        role = "assistant" if h.get("role") == "assistant" else "user"
+        if msgs and msgs[-1]["role"] == role:
+            msgs[-1]["content"] += "\n" + h.get("text", "")
+        else:
+            msgs.append({"role": role, "content": h.get("text", "")})
+    while msgs and msgs[0]["role"] != "user":
+        msgs.pop(0)
+    turn = json.dumps({"project": info}, ensure_ascii=False) + "\n\nNgười dùng: " + message
+    if msgs and msgs[-1]["role"] == "user":
+        msgs[-1]["content"] += "\n" + turn
+    else:
+        msgs.append({"role": "user", "content": turn})
+    resp = client.messages.create(model=settings.claude_model, max_tokens=1500, system=DIRECTOR_SYSTEM, tools=[DIRECTOR_TOOL],
+                                  tool_choice={"type": "tool", "name": "director"}, messages=msgs)
+    block = next((b for b in resp.content if getattr(b, "type", "") == "tool_use"), None)
+    d = (block.input or {}) if block else {}
+    action = d.get("action") if d.get("action") in ("none", "auto_create") else "none"
+    return {"reply": (d.get("reply") or "").strip() or "Mình chưa hiểu ý bạn, bạn nói rõ hơn nhé?", "action": action,
+            "style": (d.get("style") or "").strip() or None, "topic": (d.get("topic") or "").strip() or None,
+            "quality": d.get("quality") if d.get("quality") in ("preview", "final") else "final"}
+
+
+SUMMARY_SYSTEM = """Bạn là Claude, vừa chạy xong một lượt tự động edit video cho người dùng. Viết tin nhắn chat NGẮN (2-5 câu,
+tiếng Việt, thân thiện, không dùng tiêu đề markdown): đã làm được gì, điều gì cần người dùng chú ý/bổ sung (nếu có),
+và nếu video đang được xuất thì nói sẽ báo khi xong. Kết thúc bằng một câu mời người dùng nói điều muốn chỉnh
+(gợi ý 1 ví dụ cụ thể hợp với video). Không bịa số liệu ngoài dữ liệu được cho."""
+
+
+def summarize(data: dict, client=None) -> str:
+    """Tin nhắn tổng kết cuối quy trình tự động (model nhanh). Lỗi -> trả chuỗi rỗng để bên gọi dùng mẫu có sẵn."""
+    client = client or get_client()
+    resp = client.messages.create(model=settings.claude_fast_model or settings.claude_model, max_tokens=600,
+                                  system=SUMMARY_SYSTEM,
+                                  messages=[{"role": "user", "content": json.dumps(data, ensure_ascii=False)}])
+    return "".join(getattr(b, "text", "") for b in resp.content if getattr(b, "type", "") == "text").strip()

@@ -5,13 +5,14 @@ Kịch bản (AI viết nếu chỉ có chủ đề) -> giọng đọc (AI, ho�
 """
 import importlib.util
 import logging
+import shutil
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from ..database import SessionLocal
 from ..models import Asset, EditPlanRow, Project, SrtCue
 from ..schemas import Cue
-from ..services import broll_service, factcheck_service, script_service, stock_service, styles
+from ..services import broll_service, factcheck_service, folders, script_service, stock_service, styles
 from ..services.api_errors import friendly
 from ..services.context_service import build_context
 from ..services.ffmpeg_service import probe, run_ffmpeg
@@ -19,7 +20,7 @@ from ..services.repair_service import repair_plan
 from ..services.validator_service import validate_plan
 from ..utils.paths import data_dir
 from . import analyze_worker, tts_worker
-from .autofill_worker import _finish, _has_tts, _step
+from .autofill_worker import _finish, _has_tts, _step, auto_metadata, auto_music
 
 log = logging.getLogger("mre.broll")
 
@@ -32,31 +33,54 @@ def _presenter(db, pid: str):
     return None
 
 
-def _fetch_one(pid: str, item: dict, W: int, H: int, need_seconds: float) -> dict | None:
-    """Tải 1 ảnh/video về thư mục dự án và chuẩn hoá. Trả {name, path, duration, kind, item}."""
+def _orig_ext(item: dict) -> str:
+    ext = Path(item["url"].split("?")[0]).suffix.lower()
+    return ext if ext in (".jpg", ".jpeg", ".png", ".webp") else ".jpg"
+
+
+def _fetch_one(pid: str, item: dict, W: int, H: int, need_seconds: float, keep_dir: Path | None = None) -> dict | None:
+    """Tải 1 ảnh/video và chuẩn hoá. Trả {name, path, duration, kind, item, original}.
+    keep_dir (Thư mục đầu vào/Tài nguyên AI/<dự án>): video đã cắt lưu thẳng ở đó; ảnh lưu bản gốc ở đó,
+    còn clip dựng từ ảnh (chỉ là bộ đệm) để trong dữ liệu dự án."""
     folder = data_dir() / "projects" / pid / "assets"
     base = "stock_" + stock_service.cache_name(item)
-    final = folder / f"{base}.mp4"
+    photo = item["kind"] == "photo"
+    final = (folder if (photo or keep_dir is None) else keep_dir) / f"{base}.mp4"
+    original = keep_dir / f"{base}{_orig_ext(item)}" if (photo and keep_dir is not None) else None
     try:
         if not final.exists():
             raw = folder / f"{base}.raw"
-            stock_service.download(item["url"], raw)
+            if original is not None and original.exists():
+                raw = original
+            else:
+                stock_service.download(item["url"], raw)
             try:
-                if item["kind"] == "photo":
+                if photo:
                     stock_service.photo_to_clip(raw, final, W, H)
                 else:
                     stock_service.trim_video(raw, final, min(max(need_seconds + 2, 10.0), 24.0))
             finally:
-                raw.unlink(missing_ok=True)
+                if original is not None and raw != original:
+                    try:
+                        shutil.move(str(raw), str(original))
+                    except OSError:
+                        raw.unlink(missing_ok=True)
+                elif raw != original:
+                    raw.unlink(missing_ok=True)
         info = probe(final)
         if not info.get("has_video") or (info.get("duration") or 0) < 1.0:
             final.unlink(missing_ok=True)
+            if original is not None:
+                original.unlink(missing_ok=True)
             return None
         return {"name": final.name, "path": str(final), "duration": float(info["duration"]), "kind": item["kind"],
-                "item": item, "w": info.get("width"), "h": info.get("height"), "size": final.stat().st_size}
+                "item": item, "w": info.get("width"), "h": info.get("height"), "size": final.stat().st_size,
+                "original": str(original) if original is not None and original.exists() else None}
     except Exception as e:
         log.warning("Bỏ qua %s: %s", item.get("url"), e)
         final.unlink(missing_ok=True)
+        if original is not None:
+            original.unlink(missing_ok=True)
         return None
 
 
@@ -176,19 +200,29 @@ def run_broll(pid: str, opts: dict):
                 raise ValueError("Không có file giọng đọc dùng được (file voice-over lỗi?) — tải lại MP3/WAV ở Tài nguyên")
             vdur = voice.duration_seconds or 0
         if not has_cues:
+            whisper_err, whisper_ok = None, False
             if importlib.util.find_spec("faster_whisper") is not None:
                 _step(pid, "Đang nghe giọng đọc để tạo phụ đề (Whisper)…")
-                analyze_worker.transcribe_project(pid, None)
-                notes.append("Đã tạo phụ đề bằng Whisper")
+                try:
+                    analyze_worker.transcribe_project(pid, None, fail_project=False)
+                    notes.append("Đã tạo phụ đề bằng Whisper")
+                    whisper_ok = True
+                except Exception as e:      # Whisper lỗi -> không dừng cả quy trình
+                    log.warning("Whisper lỗi: %s", e)
+                    whisper_err = friendly(e)[:160]
+            if whisper_ok:
+                pass
             elif script and vdur:
                 with SessionLocal() as db:
                     for c in script_service.estimate_cues(script, vdur):
                         db.add(SrtCue(project_id=pid, cue_index=c.index, start_seconds=c.start, end_seconds=c.end,
                                       text=c.text, language=lang))
                     db.commit()
-                notes.append("Phụ đề ước lượng theo kịch bản (nên kiểm tra ở mục Kịch bản)")
+                notes.append(("Whisper lỗi (" + whisper_err + ") — " if whisper_err else "")
+                             + "Phụ đề ước lượng theo kịch bản (nên kiểm tra ở mục Kịch bản)")
             else:
-                raise ValueError("Thiếu phụ đề: dán kịch bản hoặc nạp file SRT")
+                raise ValueError(("Whisper không tạo được phụ đề: " + whisper_err + ". " if whisper_err else "")
+                                 + "Hãy nạp file SRT ở mục Kịch bản, hoặc dán kịch bản để app ước lượng phụ đề")
         with SessionLocal() as db:
             cues = [Cue(index=c.cue_index, start=c.start_seconds, end=c.end_seconds, text=c.text)
                     for c in db.query(SrtCue).filter_by(project_id=pid).order_by(SrtCue.cue_index)]
@@ -199,7 +233,12 @@ def run_broll(pid: str, opts: dict):
         _step(pid, f"Claude đang chọn hình minh hoạ cho {len(cues)} câu…")
         shots = broll_service.plan_queries(cues, style, media, topic)
 
-        # 5) Tìm & tải
+        # 5) Tìm & tải (lưu vào Thư mục đầu vào / Tài nguyên AI / <dự án> để bạn xem & dùng lại)
+        try:
+            with SessionLocal() as db:
+                keep_dir = folders.ai_dir(db.get(Project, pid).title)
+        except OSError:
+            keep_dir = None
         used_ids: set[str] = set()
         media_for_cue: dict[int, list[dict]] = {}
         fetched: dict[str, dict] = {}
@@ -215,7 +254,7 @@ def run_broll(pid: str, opts: dict):
                     media_for_cue[c.index] = prev_pool
                     continue
                 cands = _search_for(shot, style, vertical, used_ids, need)
-                results = [r for r in ex.map(lambda it: _fetch_one(pid, it, W, H, (c.end - c.start) / need + 1),
+                results = [r for r in ex.map(lambda it: _fetch_one(pid, it, W, H, (c.end - c.start) / need + 1, keep_dir),
                                              cands[:need + 1]) if r]
                 for r in results:
                     used_ids.add(r["item"]["id"])
@@ -242,14 +281,22 @@ def run_broll(pid: str, opts: dict):
                     r = fetched[name]
                     a = Asset(project_id=pid, asset_type="broll", file_name=name, file_path=r["path"], size_bytes=r["size"],
                               duration_seconds=r["duration"], width=r["w"], height=r["h"], processing_status="ready",
-                              meta={"stock": r["item"], "stock_kind": r["kind"]})
+                              meta={"stock": r["item"], "stock_kind": r["kind"], "original": r.get("original")})
                     db.add(a)
                 a.meta = {**(a.meta or {}), "scenes": sc}
             # hình tải từ lần chạy trước nhưng không dùng nữa -> xoá cho nhẹ ổ đĩa
             for name, a in existing.items():
                 if (a.meta or {}).get("stock") and name not in scenes:
                     Path(a.file_path).unlink(missing_ok=True)
+                    if (a.meta or {}).get("original"):
+                        Path(a.meta["original"]).unlink(missing_ok=True)
                     db.delete(a)
+            # tải về lần này nhưng bản dựng không dùng tới -> xoá luôn (trước đây bị sót lại trên ổ đĩa)
+            for name, r in fetched.items():
+                if name not in scenes and name not in existing:
+                    Path(r["path"]).unlink(missing_ok=True)
+                    if r.get("original"):
+                        Path(r["original"]).unlink(missing_ok=True)
             db.flush()
             ctx = build_context(db, p)
             plan, _ = repair_plan(plan, ctx)
@@ -266,6 +313,11 @@ def run_broll(pid: str, opts: dict):
             notes.append(f"Bản dựng còn {len(issues)} lỗi nhỏ — mở mục Bản dựng hoặc nhờ Chat AI sửa")
         if any((i or {}).get("source") == "wikimedia" for i in items):
             notes.append("Có ảnh Wikimedia: nhớ dán danh sách nguồn (nút “Nguồn hình”) vào mô tả video")
+        # 6b) Nhạc nền: Claude chọn trong kho Nhạc nền / nhạc miễn phí bản quyền
+        auto_metadata(pid, notes)
+        if opts.get("music", True):
+            auto_music(pid, notes)
+
         # 7) Xong + dựng video luôn (True = xem thử 720p; "final" = thành phẩm 1080p vào thư mục đầu ra)
         r = opts.get("render")
         _finish(pid, None, notes, (r if r in ("preview", "final") else "preview") if r and not issues else None)

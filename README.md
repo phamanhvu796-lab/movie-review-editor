@@ -31,6 +31,26 @@ Không build chéo được: phải build trên Windows để ra file .exe.
 ## Chạy thử không build
 `run_dev.bat` (Windows) hoặc `./run_dev.sh` (Linux/macOS, cần ffmpeg trong PATH).
 
+## Mới trong v1.9.0 — Tự động edit = trò chuyện với Claude
+
+- Bấm **⚡ Tự động edit** (thanh trên cùng, khung chat, thẻ Tình trạng dự án) là ra lệnh cho Claude ngay trong **khung chat Trợ lý AI**:
+  Claude nhắn kế hoạch theo đúng tài nguyên đang có → kể từng bước đang làm (cập nhật trực tiếp) → tổng kết kết quả →
+  báo “✅ Xong video” kèm nút ▶ Xem / 📂 Mở thư mục → mời bạn nói điều muốn chỉnh.
+- Chat được cả khi **chưa có bản dựng**: nhắn “làm video tin tài chính về lãi suất” hay “làm lại toàn bộ theo phong cách tin ngắn”,
+  Claude tự hiểu và bắt đầu. Thiếu thứ chỉ bạn cung cấp được (vd giọng đọc) thì Claude hỏi đúng thứ đó.
+- Mỗi lần Claude sửa & dựng lại ngầm xong cũng báo trong chat.
+
+## Bản sửa v1.8.1
+
+- Sửa lỗi **"open() got an unexpected keyword argument 'metadata_errors'"** khi tự động edit / tạo phụ đề bằng Whisper: thư viện PyAV bản mới bỏ tham số mà faster-whisper dùng. App giờ tự đọc file giọng đọc bằng FFmpeg đi kèm (không qua PyAV), và bản build khoá PyAV ở phiên bản tương thích.
+- Whisper lỗi không còn làm hỏng cả dự án: nếu có kịch bản, app dùng phụ đề ước lượng và báo lại; dự án không bị kẹt ở trạng thái lỗi trên mọi tab.
+
+## Mới trong v1.8.0 — AI tự lo hình minh hoạ & nhạc nền
+
+- **Footage / hình minh hoạ**: review phim thì vẫn cần file phim của bạn (AI không tạo ra được bộ phim). Không có phim → AI tự tìm ảnh/video miễn phí bản quyền, **lưu vào Thư mục đầu vào / Tài nguyên AI / <tên dự án>**; phân tích cảnh tự động.
+- **Nhạc nền tự động**: Claude đọc nội dung video → chọn bài hợp nhất trong **Thư mục đầu vào / Nhạc nền** (kho của bạn, đặt tên file theo tâm trạng). Kho thiếu → tìm nhạc không lời miễn phí bản quyền trên Openverse (CC0 / CC BY / CC BY-SA, dùng thương mại được), tải về **Nhạc nền/AI** kèm giấy phép để lần sau dùng lại. Claude đặt luôn âm lượng, tự giảm nhạc khi có lời đọc. Dòng ghi nguồn nhạc được thêm vào “📄 Nguồn hình”.
+- Bật/tắt: “Claude tự chọn nhạc nền” trong thẻ Tình trạng dự án.
+
 ## Bản sửa v1.7.1
 
 - **Phụ đề in vào video bị to và nằm giữa màn hình** → đã sửa: chữ đúng cỡ, nằm sát đáy, giống bản xem nhanh.

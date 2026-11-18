@@ -35,6 +35,11 @@ hr{border:0;border-top:1px solid var(--bd);margin:14px 0}small{color:var(--mut);
 .msg.u{align-self:flex-end;background:var(--ac2);color:#fff}.msg.a{align-self:flex-start;background:var(--p2);border:1px solid var(--bd)}
 .msg small{margin-top:4px}.msg.wait{opacity:.7;font-style:italic}
 .focusbar{display:flex;gap:6px;align-items:flex-start;background:#f5a62322;border:1px solid #f5a623;border-radius:8px;padding:6px 8px;font-size:12px}.focusbar span{flex:1}
+.msg.prog{border:1px dashed var(--ac);background:transparent}.msg.prog b{display:block;margin-bottom:3px}
+.msg.prog ol{margin:2px 0 0 18px;padding:0;font-size:12px;opacity:.75}.msg.prog li:last-child{opacity:1;font-weight:600}
+.spin{display:inline-block;width:10px;height:10px;border:2px solid var(--ac);border-right-color:transparent;border-radius:50%;animation:sp 0.8s linear infinite;margin-right:6px;vertical-align:-1px}
+@keyframes sp{to{transform:rotate(360deg)}}
+.msg.err{border-left:3px solid var(--er)}.msg.done{border-left:3px solid var(--ok)}.msg .row{margin:6px 0 0}
 .bgjob{font-size:12px;background:var(--p2);border:1px dashed var(--bd);border-radius:8px;padding:6px 8px}
 .chips{display:flex;flex-wrap:wrap;gap:5px}.chips button{font-size:11px;padding:3px 8px;border-radius:99px}
 .chatin{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:end}.chatin textarea{resize:none;min-height:38px;max-height:120px}
@@ -570,7 +575,7 @@ async function poll(){
     await loadProject();await Promise.all([loadRenders(),loadAssets()]);
     const nowBusy=['analyzing','rendering'].includes(S.project.status)||S.renders.some(r=>['queued','running'].includes(r.status));
     if(S.wasBusy&&!nowBusy){
-      await Promise.all([loadCues(),loadPlans(true),loadProjects()]);
+      await Promise.all([loadCues(),loadPlans(true),loadProjects(),loadChat()]);
       if(S.project.status==='plan_ready'||S.project.status==='completed')toast('Hoàn tất','ok');
       const an=(S.project.settings||{}).autofill_notes;if(an&&an.length&&an.join()!==S.lastNotes){S.lastNotes=an.join();toast(an.join('\n'),'ok')}
       loadCredits(true);loadReady();
@@ -588,7 +593,10 @@ async function poll(){
     S.wasBusy=nowBusy;
   }catch(e){}
 }
-function refreshBusyViews(){if(S.menu==='export'||S.menu==='assets'||S.menu==='plan')renderLeft();if(S.rtab==='chat'&&!S.chatBusy){const t=$('#chatIn'),f=t&&document.activeElement===t;if(!f)renderRight()}}
+function scrollChat(){S.chatUp=null;const l=$('#chatLog');if(l)l.scrollTop=l.scrollHeight}
+function refreshBusyViews(){if(S.menu==='export'||S.menu==='assets'||S.menu==='plan')renderLeft();
+  if(S.rtab==='chat'&&!S.chatBusy){const t=$('#chatIn'),f=t&&document.activeElement===t;
+    loadChat().then(()=>{const n=S.chat.length+'|'+((S.chat[S.chat.length-1]||{}).text||'');if(!f){renderRight();if(n!==S.chatSig)scrollChat()}S.chatSig=n})}}
 
 /* ================= Menu trái ================= */
 const MENU=[['project','📁','Dự án'],['broll','🎬','Kịch bản → Video'],['assets','🎞','Tài nguyên'],['script','📝','Kịch bản'],['voice','🎙','Giọng AI'],['plan','🤖','Bản dựng'],['export','📤','Xuất video'],['settings','⚙','Cài đặt']];
@@ -697,6 +705,7 @@ function readyHtml(){
   return `<h3>Tình trạng dự án ${r.complete?'<span class="ok">— đủ để dựng</span>':''}</h3><div class="ready">${r.items.map(i=>`<div><span class="st-${i.status}">${READY_ICON[i.status]}</span><span>${esc(i.label)}${i.status==='ai'?' <span class="st-ai">— AI sẽ tạo</span>':''}</span>${i.detail&&i.status!=='ok'?`<small>${esc(i.detail)}</small>`:''}</div>`).join('')}</div>
    ${r.can_fill?`<button class="p big" data-act="autofill" ${busy?'disabled':''}>✨ Tự động bổ sung bằng AI</button>`:''}
    <label class="chk"><input type="checkbox" id="autoFillChk" ${auto?'checked':''}> Tự phân tích & bổ sung bằng AI mỗi khi thêm file</label>
+   <label class="chk"><input type="checkbox" id="autoMusicChk" ${(S.project.settings||{}).auto_music!==false?'checked':''}> Claude tự chọn nhạc nền (kho Nhạc nền → nhạc miễn phí bản quyền)</label>
    ${notes.length&&!busy?`<small style="margin-top:6px">${notes.map(esc).join('<br>')}</small>`:''}<hr>`;
 }
 function guessType(f){
@@ -781,7 +790,7 @@ function lPlan(){
    <input id="pStyle" placeholder="Phong cách (vd: điện ảnh, nhịp nhanh)" value="${esc(ps.style||'')}">
    <label class="chk"><input id="pSpoil" type="checkbox" ${ps.allow_spoilers?'checked':''}> Cho phép tiết lộ nội dung phim</label>
    <button class="p big" data-act="genPlan">Tạo bản dựng</button>
-   <button class="big" data-act="auto">⚡ Tự động làm tất cả (phân tích → bản dựng → xem thử)</button></div>
+   <button class="big" data-act="auto">⚡ Tự động làm tất cả (phân tích → bản dựng → nhạc nền → video 1080p)</button></div>
    <h3>Phiên bản bản dựng</h3>${S.versions.length?`<select data-act-change="version">${ver}</select>`:'<p class="mut">Chưa có bản dựng.</p>'}
    ${row&&row.validation_errors&&row.validation_errors.length?`<h3>Cần chỉnh</h3><div class="err" style="white-space:pre-wrap">${row.validation_errors.map(esc).join('\n')}</div>`:''}
    ${row?'<div class="row"><button data-act="restore">Khôi phục bản này làm mới nhất</button></div>':''}`;
@@ -842,7 +851,8 @@ function lSettings(){
   if(!S.hw)api('/system/hardware').then(x=>{S.hw=x;if(S.menu==='settings'&&!S.connForm)lSettings()}).catch(()=>{});
   const D=S.dirs||{input_dir:'',output_dir:''};
   const dirRow=(k,label,hint)=>`<label>${label}<div class="keyrow"><input id="dir_${k}" value="${esc(D[k]||'')}" ${desk?'readonly':''} placeholder="${hint}"><button data-act="pickDir" data-k="${k}">${desk?'Chọn…':'Lưu'}</button></div></label>
-   <div class="row" style="margin:2px 0 8px"><button data-act="openDir" data-k="${k==='input_dir'?'input':'output'}">📂 Mở thư mục</button></div>`;
+   <div class="row" style="margin:2px 0 8px"><button data-act="openDir" data-k="${k==='input_dir'?'input':'output'}">📂 Mở thư mục</button>${k==='input_dir'?'<button data-act="openDir" data-k="music" title="Kho nhạc dùng chung: thả nhạc của bạn vào đây, Claude tự chọn bài hợp từng video">🎵 Nhạc nền</button><button data-act="openDir" data-k="ai" title="Ảnh/video AI tự tìm cho từng dự án">🖼 Tài nguyên AI</button>':''}</div>
+   ${k==='input_dir'?'<small style="margin:-4px 0 8px">Trong thư mục đầu vào: <b>Nhạc nền</b> = kho nhạc (đặt tên file theo tâm trạng, vd “Hồi hộp - trống.mp3”, Claude đọc tên để chọn); <b>Tài nguyên AI</b> = ảnh/video AI tự tìm, chia theo dự án.</small>':''}`;
   const lic=!L.required?'':`<h3>Tài khoản & giấy phép</h3><div class="hwgrid"><span>Tài khoản</span><span><b>${esc(AUTH.user||L.user||'')}</b>${L.name?' · '+esc(L.name):''}</span><span>Mã máy</span><span><b style="font-family:Consolas,monospace">${esc(L.machine_key)}</b></span>
    <span>Trạng thái</span><span class="${L.valid?'ok':'err'}">${L.valid?'Đang dùng':esc(L.message)}</span>
    <span>Hạn dùng</span><span>${L.expires_at?new Date(L.expires_at*1000).toLocaleString('vi-VN')+` (còn ${L.days_left} ngày)`:'Vĩnh viễn'}</span>
@@ -877,7 +887,7 @@ function renderRight(){
   const body=({chat:rChat,clip:rClip,sub:rSub,fx:rFx,audio:rAudio,logo:rLogo,ai:rAI}[S.rtab])();
   const rb=$('#rbody');rb.classList.toggle('chatmode',S.rtab==='chat');
   const keep=rb.scrollTop;rb.innerHTML=`<div id="dirtySlot">${dirtyHtml()}</div>`+body;rb.scrollTop=keep;
-  if(S.rtab==='chat'){const l=$('#chatLog');if(l)l.scrollTop=l.scrollHeight;const t=$('#chatIn');if(t){t.value=S.chatDraft;t.oninput=()=>{S.chatDraft=t.value;t.style.height='auto';t.style.height=Math.min(120,t.scrollHeight)+'px'};t.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ACT.chatSend()}}}}
+  if(S.rtab==='chat'){const l=$('#chatLog');if(l)l.scrollTop=S.chatUp!=null?S.chatUp:l.scrollHeight;if(l)l.onscroll=()=>{S.chatUp=l.scrollHeight-l.scrollTop-l.clientHeight>60?l.scrollTop:null};const t=$('#chatIn');if(t){t.value=S.chatDraft;t.oninput=()=>{S.chatDraft=t.value;t.style.height='auto';t.style.height=Math.min(120,t.scrollHeight)+'px'};t.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();ACT.chatSend()}}}}
 }
 function dirtyHtml(){return S.dirty?`<div class="dirty">● Có thay đổi chưa lưu<div class="row"><button class="p" data-act="savePlan">Lưu & kiểm tra</button><button data-act="revertPlan">Hoàn tác</button></div></div>`:''}
 function updDirty(){const s=$('#dirtySlot');if(s)s.innerHTML=dirtyHtml()}
@@ -890,13 +900,19 @@ function rChat(){
   const run=S.renders.find(r=>['queued','running'].includes(r.status));
   const bg=st==='rendering'||run?`<div class="bgjob">🎬 Đang dựng lại video ngầm${run&&run.progress?` · ${run.progress}%`:''}${ps.rerender_pending?' — đã nhận yêu cầu mới, sẽ dựng tiếp bản mới nhất ngay sau đó':''}. Bạn vẫn xem và chat tiếp được; xong sẽ tự phát bản mới.</div>`:'';
   const fb=S.chatAt!=null?`<div class="focusbar"><span>📍 Sửa đoạn <b>${fmt1(S.chatAt)}</b>${S.chatCue?': “'+esc(S.chatCue.text.slice(0,90))+'”':''}<br><small class="mut">Gõ điều chưa ưng ở đoạn này, ví dụ “cảnh này không khớp lời, đổi cảnh khác”.</small></span><button data-act="fixClear" title="Bỏ chọn đoạn" style="flex:0 0 auto;padding:2px 7px">✕</button></div>`:'';
-  const log=S.chat.map(m=>`<div class="msg ${m.role==='user'?'u':'a'}">${m.at_time!=null?`<small style="margin:0 0 3px">📍 ${fmt1(m.at_time)}</small>`:''}${esc(m.text)}${m.notes&&m.notes.length?`<small>• ${m.notes.map(esc).join('<br>• ')}</small>`:''}${m.version?`<small>${m.valid?'✓':'⚠'} Đã lưu bản dựng phiên bản ${m.version}${m.valid?'':' (còn lỗi — xem tab Bản dựng)'}</small>`:''}</div>`).join('')
-    ||`<div class="msg a">Xin chào! Hãy ra lệnh bằng lời, ví dụ “làm mở đầu kịch tính hơn”, “đổi cảnh câu 5 sang cảnh cận mặt”, “màu đen trắng cả video”. Mình sẽ sửa bản dựng ngay.${S.plan?'':'\n\nDự án chưa có bản dựng — bấm “⚡ Tự động edit” để AI làm từ đầu.'}</div>`;
+  const working=st==='analyzing';
+  const log=S.chat.map((m,i)=>{
+    if(m.kind==='progress'){const live=working&&i===S.chat.length-1;
+      return `<div class="msg a prog"><b>${live?'<span class="spin"></span>Claude đang làm…':'Các bước đã làm'}</b><ol>${(m.steps||[m.text]).map(x=>`<li>${esc(x)}</li>`).join('')}</ol></div>`}
+    const cls=m.role==='user'?'u':'a'+(m.kind==='error'?' err':m.kind==='render'?' done':'');
+    const btn=m.kind==='render'&&m.render_id?`<div class="row"><button class="p" data-act="viewRender" data-id="${esc(m.render_id)}">▶ Xem video</button>${m.path?`<button data-act="openRenderFile" data-path="${esc(m.path)}">📂 Mở thư mục</button>`:''}</div>`:'';
+    return `<div class="msg ${cls}">${m.at_time!=null?`<small style="margin:0 0 3px">📍 ${fmt1(m.at_time)}</small>`:''}${esc(m.text)}${m.notes&&m.notes.length&&m.kind!=='summary'?`<small>• ${m.notes.map(esc).join('<br>• ')}</small>`:''}${m.notes&&m.notes.length&&m.kind==='summary'?`<details><summary><small style="display:inline">Chi tiết</small></summary><small>• ${m.notes.map(esc).join('<br>• ')}</small></details>`:''}${m.version?`<small>${m.valid?'✓':'⚠'} Đã lưu bản dựng phiên bản ${m.version}${m.valid?'':' (còn lỗi — xem tab Bản dựng)'}</small>`:''}${btn}</div>`}).join('')
+    ||`<div class="msg a">Xin chào, mình là Claude! Bấm <b>⚡ Tự động edit</b> để mình tự làm video từ những gì bạn đã thêm (phim, voice MP3, SRT, kịch bản) — mình sẽ kể từng bước ngay tại đây. Hoặc nhắn cho mình, ví dụ “làm video tin tài chính 60 giây về lãi suất”, “mở đầu kịch tính hơn”, “màu đen trắng cả video”.</div>`;
   return `<div class="chat"><div class="row" style="margin:0"><button class="p" data-act="autoEdit" ${busy?'disabled':''}>⚡ Tự động edit</button>${S.chat.length?'<button data-act="chatClear" style="flex:0 0 auto">Xoá chat</button>':''}</div>
-   <div id="chatLog" class="chatlog">${log}${S.chatBusy?'<div class="msg a wait">AI đang sửa bản dựng…</div>':''}</div>${bg}${fb}
+   <div id="chatLog" class="chatlog">${log}${S.chatBusy?'<div class="msg a wait"><span class="spin"></span>Claude đang đọc yêu cầu…</div>':''}</div>${bg}${fb}
    <label class="chk" style="margin:0;font-size:12px"><input type="checkbox" id="autoRe" ${S.autoRe!==false?'checked':''}> Sửa xong tự dựng lại video ngầm</label>
    <div class="chips">${CHIPS.map(c=>`<button data-act="chatChip" data-t="${esc(c)}" ${busy?'disabled':''}>${esc(c)}</button>`).join('')}</div>
-   <div class="chatin"><textarea id="chatIn" rows="2" placeholder="${S.chatAt!=null?'Đoạn này chưa ưng ở điểm nào?':'Nhập yêu cầu cho AI…'} (Enter gửi, Shift+Enter xuống dòng)" ${busy?'disabled':''}></textarea><button class="p" data-act="chatSend" ${busy?'disabled':''}>Gửi</button></div></div>`;
+   <div class="chatin"><textarea id="chatIn" rows="2" placeholder="${working?'Claude đang làm việc — đợi xong lượt này rồi nhắn tiếp nhé…':S.chatAt!=null?'Đoạn này chưa ưng ở điểm nào?':'Nhắn cho Claude…'} (Enter gửi, Shift+Enter xuống dòng)" ${busy?'disabled':''}></textarea><button class="p" data-act="chatSend" ${busy?'disabled':''}>Gửi</button></div></div>`;
 }
 function rClip(){
   if(!S.plan)return '<p class="mut">Chưa có bản dựng. Bấm <b>⚡ Tự động tạo video</b> ở trên cùng, hoặc vào menu “Bản dựng”.</p>';
@@ -1141,13 +1157,16 @@ const ACT={
   loadVoices:()=>loadVoices(false),
   genVoice:()=>runBusy(()=>send('POST',`/projects/${S.pid}/voice/generate`,{text:$('#vText').value,provider:S.v.prov,voice_id:S.v.voice,style:S.v.style,quality:S.v.qual,speed:+S.v.speed||1,set_cues:$('#vCues').checked}),'Đang tạo giọng đọc…'),
   genPlan:()=>runBusy(()=>send('POST',`/projects/${S.pid}/edit-plan/generate`,{allow_spoilers:$('#pSpoil').checked,style:$('#pStyle').value}),'Claude đang lên bản dựng…'),
-  auto:()=>{if(!S.pid)return toast('Hãy tạo hoặc chọn dự án trước','err');
-    const sp=$('#pSpoil'),st=$('#pStyle');
+  auto:async()=>{if(!S.pid)return toast('Hãy tạo hoặc chọn dự án trước','err');
+    if(!S.cfg.has_api_key){toast('Kết nối Claude trong ⚙ Cài đặt trước nhé','err');S.menu='settings';renderMenu();renderLeft();return}
+    if(S.chatBusy)return;
     if(S.dirty&&!confirm('Bản dựng có thay đổi chưa lưu — tự động tạo lại sẽ bỏ thay đổi đó. Tiếp tục?'))return;
-    const foot=S.assets.some(a=>['footage','broll'].includes(a.asset_type)&&!(a.meta||{}).stock);
-    S.autoView={at:null};
-    runBusy(()=>send('POST',`/projects/${S.pid}/auto`,{allow_spoilers:sp?sp.checked:null,style:st?st.value:null,render:true,quality:'final'}),
-      foot?'Bắt đầu tự động: phân tích cảnh → bản dựng → xuất video 1080p':'Bắt đầu tự động: kịch bản/SRT + giọng đọc → tìm hình minh hoạ → dựng → xuất video 1080p')},
+    S.rtab='chat';S.chatBusy=true;S.chat=[...S.chat,{role:'user',text:'⚡ Tự động edit video này'}];renderRight();
+    try{const r=await send('POST',`/projects/${S.pid}/chat`,{message:'⚡ Tự động edit video này',auto:true,quality:'final'},240000);
+      S.project=r.project||S.project;if(r.started){S.wasBusy=true;S.autoView={at:null}}
+      if(r.error)toast(r.error,'err')}
+    catch(e){toast(e.message,'err')}
+    finally{S.chatBusy=false;await loadChat();renderRight();renderLeft();scrollChat()}},
   restore:async()=>{try{await send('POST',`${planUrl()}/${S.planRow.id}/restore`);await loadPlans();renderAll();toast('Đã khôi phục','ok')}catch(e){toast(e.message,'err')}},
   render:()=>{
     runBusy(()=>send('POST',`/projects/${S.pid}/renders`,{...S.opts,edit_plan_id:S.planRow?S.planRow.id:null}),'Bắt đầu xuất video…').then(()=>loadRenders().then(()=>renderLeft()))},
@@ -1211,7 +1230,7 @@ const ACT={
     if(S.dirty&&!confirm('Bạn có thay đổi chưa lưu trên bản dựng. AI sẽ sửa từ bản đã lưu — bỏ thay đổi chưa lưu?'))return;
     const ar=$('#autoRe');if(ar)S.autoRe=ar.checked;
     const at=S.chatAt,body={message:msg,auto_render:S.autoRe!==false,...(at!=null?{at_time:+at.toFixed(2)}:{}),...(S.mode==='export'&&S.exportId?{render_id:S.exportId}:{})};
-    S.chatBusy=true;S.chatDraft='';S.chat=[...S.chat,{role:'user',text:msg,at_time:at}];S.chatAt=null;S.chatCue=null;renderRight();
+    S.chatBusy=true;S.chatUp=null;S.chatDraft='';S.chat=[...S.chat,{role:'user',text:msg,at_time:at}];S.chatAt=null;S.chatCue=null;renderRight();
     try{const r=await send('POST',`/projects/${S.pid}/chat`,body,240000);
       await loadChat();S.project=r.project||S.project;
       S.opts={...OPTS0,aspect_ratio:S.project.aspect_ratio||'16:9',...((S.project.settings||{}).render_opts||{})};
@@ -1227,7 +1246,7 @@ const ACT={
     S.chatDraft='Tự động tối ưu toàn bộ bản dựng như editor chuyên nghiệp: hook 8 giây đầu thật mạnh, nhịp cắt hợp với lời đọc, chọn cảnh khớp nội dung từng câu, màu sắc đồng nhất, chuyển cảnh và zoom hợp lý.';
     ACT.chatSend();
   },
-  autofill:()=>runBusy(()=>send('POST',`/projects/${S.pid}/autofill`,{}),'AI đang phân tích và bổ sung phần còn thiếu…'),
+  autofill:()=>{S.rtab='chat';runBusy(()=>send('POST',`/projects/${S.pid}/autofill`,{}),'Claude đang bổ sung phần còn thiếu — xem từng bước ở khung chat').then(()=>{loadChat().then(()=>{renderRight();scrollChat()})})},
   linkFiles:async()=>{
     if(!S.pid)return toast('Hãy tạo dự án trước','err');
     if(!S.dirs)try{S.dirs=await api('/system/folders')}catch{}
@@ -1369,6 +1388,8 @@ document.addEventListener('change',async e=>{
     try{await send('POST','/connections',{service:t.dataset.svc,id:t.dataset.connEnabled,enabled:t.checked,force:true,set_active:false});await loadConns();lSettings()}catch(err){toast(err.message,'err')}
   }else if(t.id==='autoFillChk'){
     try{S.project=await api('/projects/'+S.pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...(S.project.settings||{}),autofill:t.checked}})});toast(t.checked?'Sẽ tự bổ sung bằng AI khi thêm file':'Đã tắt tự bổ sung','ok')}catch(err){toast(err.message,'err')}
+  }else if(t.id==='autoMusicChk'){
+    try{S.project=await api('/projects/'+S.pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...(S.project.settings||{}),auto_music:t.checked}})});await loadReady();toast(t.checked?'Claude sẽ tự chọn nhạc nền':'Đã tắt tự chọn nhạc nền','ok')}catch(err){toast(err.message,'err')}
   }else if(t.id==='bStyle'){S.bStyle=t.value;S.bMedia=null;lBroll();
   }else if(t.id==='perfMode'){
     try{S.hw=await send('PUT','/system/perf',{mode:t.value});lSettings();pollSys();toast('Đã đổi chế độ hiệu năng','ok')}catch(err){toast(err.message,'err')}

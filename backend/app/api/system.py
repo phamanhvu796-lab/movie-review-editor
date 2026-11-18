@@ -111,7 +111,10 @@ class OpenIn(BaseModel):
 @router.post("/folders/open")
 def folders_open(body: OpenIn):
     try:
-        target = {"input": folders.input_dir(), "output": folders.output_dir()}.get(body.which) or body.path
+        target = {"input": folders.input_dir(), "output": folders.output_dir(), "music": folders.music_dir(),
+                  "ai": folders.input_dir() / folders.AI_DIR}.get(body.which) or body.path
+        if body.which == "ai":
+            target.mkdir(parents=True, exist_ok=True)
         if body.which == "file":
             from ..database import SessionLocal
             from ..models import Render

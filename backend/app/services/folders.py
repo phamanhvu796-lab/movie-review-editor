@@ -59,6 +59,24 @@ def safe_name(s: str) -> str:
     return re.sub(r"\s+", " ", s)[:80] or "video"
 
 
+AI_DIR = "Tài nguyên AI"
+MUSIC_DIR = "Nhạc nền"
+
+
+def ai_dir(project_title: str) -> Path:
+    """Thư mục đầu vào / Tài nguyên AI / <tên dự án>: ảnh & video AI tự tìm cho dự án này."""
+    d = input_dir() / AI_DIR / safe_name(project_title or "Dự án")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def music_dir() -> Path:
+    """Thư mục đầu vào / Nhạc nền: kho nhạc dùng chung mọi dự án (bạn thả nhạc của mình vào, AI tải thêm vào /AI)."""
+    d = input_dir() / MUSIC_DIR
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def output_file(title: str, fmt: str, resolution: str) -> Path:
     stamp = datetime.now().strftime("%Y-%m-%d %H-%M")
     base = f"{safe_name(title)} - {fmt.replace(':', 'x')} {resolution} - {stamp}"

@@ -74,7 +74,9 @@ def start_broll(pid: str, body: BrollIn, db=Depends(get_db)):
 
 @router.get("/projects/{pid}/broll/credits", response_class=PlainTextResponse)
 def broll_credits(pid: str, db=Depends(get_db)):
-    return (get_project(db, pid).settings or {}).get("stock_credits") or "Chưa có hình tải từ kho."
+    ps = get_project(db, pid).settings or {}
+    text = ps.get("stock_credits") or "Chưa có hình tải từ kho."
+    return text + ("\n\n" + ps["music_credit"] if ps.get("music_credit") else "")
 
 
 # ------------------------------------------------------------------ DeepSeek: kiểm tra & kiểm chứng kịch bản

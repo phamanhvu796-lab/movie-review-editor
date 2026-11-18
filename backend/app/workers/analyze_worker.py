@@ -46,20 +46,27 @@ def analyze_project(project_id: str, tag: bool = False):
             p.status = "draft"
             db.commit()
         except Exception as e:
-            _fail(db, p, e)
+            if fail_project:            # gọi riêng (nút Tạo phụ đề): báo lỗi lên dự án
+                _fail(db, p, e)
+            else:                       # trong quy trình tự động: để bên gọi tự xử lý (vd dùng phụ đề ước lượng)
+                db.rollback()
             raise
 
 
-def transcribe_project(project_id: str, language: str | None):
+def transcribe_project(project_id: str, language: str | None, fail_project: bool = True):
     from ..services.whisper_service import transcribe_to_cues
     with SessionLocal() as db:
         p = db.get(Project, project_id)
         p.status, p.error_message = "analyzing", None
         db.commit()
         try:
-            voice = (db.query(Asset).filter_by(project_id=project_id, asset_type="voice")
-                     .order_by(Asset.created_at.desc()).first())
+            voice = (db.query(Asset).filter(Asset.project_id == project_id, Asset.asset_type == "voice",
+                                            Asset.processing_status != "failed").order_by(Asset.created_at.desc()).first())
+            if voice is None:
+                raise ValueError("Chưa có file giọng đọc để tạo phụ đề")
             cues = transcribe_to_cues(voice.file_path, language or p.language)
+            if not cues:
+                raise ValueError("Whisper không nghe ra lời nào trong file giọng đọc")
             db.query(SrtCue).filter_by(project_id=project_id).delete()
             for c in cues:
                 db.add(SrtCue(project_id=project_id, cue_index=c.index, start_seconds=c.start,
