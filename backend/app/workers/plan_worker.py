@@ -19,6 +19,9 @@ def generate_plan(project_id: str, allow_spoilers: bool | None, style: str | Non
             p.status = "plan_ready" if ok else "draft"
             p.error_message = None if ok else "Plan còn lỗi, cần chỉnh tay hoặc tạo lại (xem danh sách lỗi)"
             db.commit()
+            if ok:                       # chat AI nhờ "làm lại" -> tự dựng lại luôn ở nền
+                from .render_worker import rerender_if_pending
+                rerender_if_pending(db, p)
         except Exception as e:
             p.status, p.error_message = "failed", friendly(e)[:1000]
             db.commit()

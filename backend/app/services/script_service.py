@@ -60,3 +60,27 @@ def estimate_cues(script: str, total_seconds: float):
         out.append(Cue(index=i, start=round(t, 3), end=round(t + d, 3), text=line))
         t += d
     return out
+
+
+def write_topic_script(topic: str, style: dict, language: str, target_seconds: int, client=None) -> str:
+    """Kịch bản cho chế độ Kịch bản -> Video (tin tức / lịch sử / tài chính) từ một chủ đề."""
+    from .styles import GROUPS
+    client = client or get_client()
+    if style.get("max_seconds"):
+        target_seconds = min(target_seconds, style["max_seconds"])
+    chars = int(CHARS_PER_SEC.get(language, 14.0) * max(20, target_seconds))
+    system = (f"Bạn là biên kịch kênh video {GROUPS[style['group']]}. Phong cách: {style['label']}. "
+              f"Viết lời đọc bằng ngôn ngữ mã '{language}': câu ngắn, dễ đọc to, mỗi câu một ý để dễ minh hoạ bằng hình. "
+              f"Giọng văn: {style.get('tone') or 'rõ ràng, cuốn hút'}. Mở đầu bằng 1 câu hook. "
+              "Chỉ nêu thông tin bạn chắc chắn; số liệu/sự kiện không chắc thì nói chung chung, không bịa nguồn, tên người, "
+              "con số. Tin tức thời sự: nhắc người xem kiểm tra nguồn chính thức. Không ghi chú đạo diễn, không tiêu đề. "
+              "Trả kết quả bằng tool write_review_script.")
+    resp = client.messages.create(model=settings.claude_model, max_tokens=min(16000, chars // 2 + 2000), system=system,
+                                  tools=[TOOL], tool_choice={"type": "tool", "name": TOOL["name"]},
+                                  messages=[{"role": "user", "content": f"Chủ đề: {topic}\nĐộ dài: khoảng {chars} ký tự "
+                                                                        f"(~{max(1, target_seconds // 60)} phút đọc)."}])
+    block = next((b for b in resp.content if b.type == "tool_use"), None)
+    text = (((block.input or {}).get("script") if block else "") or "").strip()
+    if len(text) < 30:
+        raise RuntimeError("AI không viết được kịch bản (nội dung trả về quá ngắn)")
+    return text

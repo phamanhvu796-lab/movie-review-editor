@@ -170,7 +170,7 @@ def apply_operations(plan: dict | None, ops: list[dict], options: dict) -> tuple
 
 
 def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[dict], message: str,
-              client=None) -> dict:
+              client=None, focus: str | None = None) -> dict:
     """Một lượt chat. Trả {reply, plan (dict|None nếu không đổi), options, actions, notes, issues}."""
     client = client or get_client()
     content = [
@@ -186,6 +186,8 @@ def chat_edit(ctx: PlanContext, plan: dict | None, options: dict, history: list[
             msgs.append({"role": role, "content": h.get("text", "")})
     while msgs and msgs[0]["role"] != "user":
         msgs.pop(0)
+    if focus:                       # người xem bấm "Sửa đoạn này" ở một thời điểm trên video
+        content.append({"type": "text", "text": focus})
     content.append({"type": "text", "text": "Yêu cầu: " + message})
     if msgs and msgs[-1]["role"] == "user":
         msgs[-1] = {"role": "user", "content": [{"type": "text", "text": msgs[-1]["content"]}] + content}

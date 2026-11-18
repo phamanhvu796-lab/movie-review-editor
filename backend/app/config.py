@@ -93,7 +93,8 @@ class Settings:
         return normalize_base_url(self.base_url_raw(kind), kind)
 
     # ---- Nguồn kết nối (nhiều Base URL + API key) cho từng dịch vụ: llm | elevenlabs | openai_tts ----
-    _KEYFIELD = {"llm": "anthropic_api_key", "elevenlabs": "elevenlabs_api_key", "openai_tts": "openai_api_key"}
+    _KEYFIELD = {"llm": "anthropic_api_key", "elevenlabs": "elevenlabs_api_key", "openai_tts": "openai_api_key",
+                 "deepseek": "deepseek_api_key"}
 
     def _legacy_key(self) -> str:
         return self._load().get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
@@ -109,6 +110,12 @@ class Settings:
             key, kind, name = self._legacy_key(), "anthropic", "Claude (mặc định)"
         elif service == "elevenlabs":
             key, kind, name = d.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", ""), "elevenlabs", "ElevenLabs (mặc định)"
+        elif service == "deepseek":
+            key = d.get("deepseek_api_key") or os.getenv("DEEPSEEK_API_KEY", "")
+            if not key:
+                return None
+            from .services import deepseek
+            return {"id": "default", "service": service, **deepseek.preset(), "api_key": key, "enabled": True}
         else:
             key, kind, name = d.get("openai_api_key") or os.getenv("OPENAI_API_KEY", ""), "openai", "OpenAI TTS (mặc định)"
         if not key:

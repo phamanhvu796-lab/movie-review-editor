@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 
 from ..schemas import Cue, EditPlan, Visual
 from .ffmpeg_service import detect_hw_encoder, final_codec_args, run_ffmpeg, segment_codec_args
-from .srt_service import to_srt
 
 RES = {("16:9", "preview"): (1280, 720), ("16:9", "final"): (1920, 1080),
        ("9:16", "preview"): (720, 1280), ("9:16", "final"): (1080, 1920)}
@@ -25,6 +24,7 @@ PRESETS = {
     "cold_thriller": "colorbalance=rs=-0.10:bs=0.12:rh=-0.04:bh=0.08,eq=saturation=0.85:contrast=1.1",
     "vibrant_vlog": "eq=saturation=1.35:contrast=1.08",
     "noir": "hue=s=0,eq=contrast=1.2",
+    "vintage_sepia": "colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131,eq=contrast=1.05:saturation=0.9",
 }
 _LOGO_XY = {"top-left": ("{m}", "{m}"), "top-right": ("W-w-{m}", "{m}"),
             "bottom-left": ("{m}", "H-h-{m}"), "bottom-right": ("W-w-{m}", "H-h-{m}")}
@@ -153,14 +153,39 @@ def _ass_color(hex_color: str) -> str:
     return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}".upper()
 
 
-def subtitle_filter(o: RenderOptions, W: int, H: int) -> str:
+def _ass_time(t: float) -> str:
+    cs = max(0, int(round(t * 100)))
+    return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
+
+
+def _ass_text(text: str) -> str:
+    t = (text or "").replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+    return "\\N".join(x.strip() for x in t.replace("\r", "").split("\n") if x.strip())
+
+
+def subtitle_ass(o: RenderOptions, W: int, H: int, cues) -> str:
+    """File .ass với khung ảo = đúng kích thước video (PlayRes W×H) -> cỡ chữ tính bằng pixel thật, khớp bản xem nhanh.
+    (Dùng thẳng SRT thì libass lấy khung 384×288 mặc định -> chữ bị phóng to ~3,75 lần, nằm giữa màn hình.)"""
     s = min(W, H) / 1080
     margin = o.subtitle_margin_v if o.subtitle_margin_v is not None else round((260 if H > W else 70) * s)
     font = re.sub(r"[^\w \-]", "", o.subtitle_font) or "Arial"
-    style = (f"FontName={font},FontSize={round(o.subtitle_size * s)},Bold=1,"
-             f"PrimaryColour={_ass_color(o.subtitle_color)},OutlineColour={_ass_color(o.subtitle_outline_color)},"
-             f"BorderStyle=1,Outline={max(1, round(3 * s))},Shadow=0,Alignment=2,MarginV={margin}")
-    return f"subtitles=subs.srt:original_size={W}x{H}:force_style='{style}'"
+    side = round(60 * s)
+    head = ("[Script Info]\nScriptType: v4.00+\nWrapStyle: 0\nScaledBorderAndShadow: yes\n"
+            f"PlayResX: {W}\nPlayResY: {H}\n\n[V4+ Styles]\n"
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, "
+            "Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, "
+            "MarginR, MarginV, Encoding\n"
+            f"Style: Default,{font},{round(o.subtitle_size * s)},{_ass_color(o.subtitle_color)},&H000000FF,"
+            f"{_ass_color(o.subtitle_outline_color)},&H64000000,-1,0,0,0,100,100,0,0,1,{max(1, round(3 * s))},0,2,"
+            f"{side},{side},{margin},1\n\n[Events]\n"
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+    ev = "".join(f"Dialogue: 0,{_ass_time(c.start)},{_ass_time(c.end)},Default,,0,0,0,,{_ass_text(c.text)}\n"
+                 for c in cues if c.end > c.start and (c.text or "").strip())
+    return head + ev
+
+
+def subtitle_filter(o: RenderOptions, W: int, H: int) -> str:
+    return "subtitles=subs.ass"
 
 
 def render_video(plan: EditPlan, cues: list[Cue], footage_paths: dict[str, str], voice_path: str,
@@ -259,7 +284,7 @@ def render_video(plan: EditPlan, cues: list[Cue], footage_paths: dict[str, str],
     if opts.film_grain:
         vf.append("noise=alls=6:allf=t")
     if opts.burn_subtitles and cues:
-        (workdir / "subs.srt").write_text(to_srt(cues), "utf-8")
+        (workdir / "subs.ass").write_text(subtitle_ass(opts, W, H, cues), "utf-8")
         vf.append(subtitle_filter(opts, W, H))      # burn trước, logo overlay sau => logo không bị phụ đề che
     fc = [f"[0:v]{','.join(vf) or 'null'}[v0]"]
     if logo_i is not None:

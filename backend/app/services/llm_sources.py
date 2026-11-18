@@ -44,7 +44,11 @@ def build_single_client(conn: dict):
         timeout = httpx.Timeout(conn["_timeout"], connect=10.0)     # thử kết nối: không treo hàng phút nếu relay không trả lời
     else:
         timeout = 300.0
-    return Anthropic(api_key=key, base_url=base, max_retries=conn.get("_retries", 4), timeout=timeout, **kw)
+    client = Anthropic(api_key=key, base_url=base, max_retries=conn.get("_retries", 4), timeout=timeout, **kw)
+    from . import deepseek
+    if deepseek.is_deepseek(conn):        # DeepSeek: tắt "thinking" để tool_choice chạy, ảnh -> model nhận ảnh
+        return deepseek.Wrapped(client, conn.get("fast_model") or None)
+    return client
 
 
 def probe_models(conn: dict) -> list[str]:

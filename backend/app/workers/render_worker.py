@@ -7,10 +7,57 @@ from ..models import Asset, EditPlanRow, Project, Render, SrtCue
 from ..schemas import Cue, EditPlan
 from ..services.ffmpeg_service import RenderCancelled
 from ..services import folders, storage_service
-from ..services.render_service import RenderOptions, render_video
+from ..services.render_service import RES, RenderOptions, render_video
 from ..services.srt_service import to_srt
 from ..utils.paths import data_dir
-from .pool import CANCELLED
+from .pool import CANCELLED, submit_render
+
+
+def queue_render(db, p: Project, plan_id: str, quality: str = "preview") -> Render:
+    """Xếp hàng một lần dựng với tuỳ chọn đã lưu của project (chất lượng tuỳ chọn)."""
+    saved = (p.settings or {}).get("render_opts", {})
+    opts = RenderOptions(**{k: v for k, v in saved.items() if k in RenderOptions.model_fields})
+    if quality not in {q for _, q in RES}:
+        quality = "preview"
+    opts = opts.model_copy(update={"quality": quality})
+    W, H = RES[(opts.aspect_ratio, opts.quality)]
+    r = Render(project_id=p.id, edit_plan_id=plan_id, format=opts.aspect_ratio, resolution=f"{W}x{H}", options=opts.model_dump())
+    db.add(r)
+    p.status = "rendering"
+    db.commit()
+    submit_render(run_render, r.id)
+    return r
+
+
+def latest_valid_plan(db, pid: str):
+    return (db.query(EditPlanRow).filter_by(project_id=pid, validation_status="valid")
+            .order_by(EditPlanRow.version.desc()).first())
+
+
+def take_pending(db, p: Project) -> dict | None:
+    """Lấy (và xoá) yêu cầu dựng lại đang chờ — đặt bởi chat AI khi video đang được dựng."""
+    db.refresh(p)
+    pend = (p.settings or {}).get("rerender_pending")
+    if pend:
+        st = dict(p.settings or {})
+        st.pop("rerender_pending", None)
+        p.settings = st
+        db.commit()
+    return pend or None
+
+
+def rerender_if_pending(db, p: Project) -> Render | None:
+    """Gọi khi một lần dựng kết thúc: nếu trong lúc dựng người dùng đã nhờ AI sửa tiếp -> dựng lại ngay bản mới nhất."""
+    try:
+        pend = take_pending(db, p)
+        if not pend:
+            return None
+        row = latest_valid_plan(db, p.id)
+        if row is None:
+            return None
+        return queue_render(db, p, row.id, pend.get("quality", "preview"))
+    except Exception:
+        return None
 
 
 def run_render(render_id: str):
@@ -26,7 +73,7 @@ def run_render(render_id: str):
         try:
             plan = EditPlan.model_validate(db.get(EditPlanRow, r.edit_plan_id).plan)
             assets = db.query(Asset).filter_by(project_id=p.id).order_by(Asset.created_at).all()
-            latest = lambda t: next((a for a in reversed(assets) if a.asset_type == t), None)
+            latest = lambda t: next((a for a in reversed(assets) if a.asset_type == t and a.processing_status != "failed"), None)
             voice, music, logo = latest("voice"), latest("music"), latest("logo")
             if not voice:
                 raise RuntimeError("Chưa có voice-over")
@@ -59,13 +106,16 @@ def run_render(render_id: str):
                     storage_service.prune_old_previews(db, keep=1, project_id=p.id)
                 except Exception:
                     pass
+            rerender_if_pending(db, p)
         except RenderCancelled:
             r.status, p.status = "cancelled", "plan_ready"
             db.commit()
+            take_pending(db, p)               # người dùng chủ động huỷ -> bỏ luôn lần dựng lại đang chờ
         except Exception as e:
             r.status, r.error_message, p.status, p.error_message = "failed", str(e)[:2000], "failed", str(e)[:1000]
             db.commit()
-            raise
+            if rerender_if_pending(db, p) is None:
+                raise
         finally:
             CANCELLED.discard(render_id)
             shutil.rmtree(workdir, ignore_errors=True)

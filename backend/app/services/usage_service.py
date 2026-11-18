@@ -45,6 +45,9 @@ def _g(o, k):
 
 
 def cost(model: str | None, inp: int, out: int, cache_read: int = 0, cache_write: int = 0) -> float:
+    from . import deepseek
+    if deepseek.is_model(model):           # giá DeepSeek riêng (cache rẻ hơn nhiều, giờ cao điểm x2)
+        return deepseek.cost(model, inp, out, cache_read, cache_write)
     pin, pout = price_of(model)
     return (inp * pin + out * pout + cache_read * pin * 0.1 + cache_write * pin * 1.25) / 1_000_000
 

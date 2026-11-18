@@ -25,7 +25,7 @@ def build_context(db, project: Project, allow_spoilers: bool | None = None, styl
     if not footage:
         raise ValueError("Chưa phân tích footage: bấm 'Phân tích footage' trước")
 
-    voices = [a for a in assets if a.asset_type == "voice"]
+    voices = [a for a in assets if a.asset_type == "voice" and a.processing_status != "failed"]
     voice_duration = (voices[-1].duration_seconds if voices else None) or cues[-1].end_seconds
     luts = [Path(a.file_name).stem for a in assets if a.asset_type == "lut"]
     ps = project.settings or {}

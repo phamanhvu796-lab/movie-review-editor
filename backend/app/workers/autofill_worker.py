@@ -28,8 +28,9 @@ def _has_tts() -> str | None:
 def readiness(db, p: Project) -> dict:
     """Bảng kiểm tra: mỗi mục ok | ai (AI sẽ tự bổ sung) | user (cần người dùng) | optional."""
     assets = db.query(Asset).filter_by(project_id=p.id).all()
-    foot = [a for a in assets if a.asset_type in ("footage", "broll") and a.processing_status != "failed"]
-    voice = any(a.asset_type == "voice" for a in assets)
+    foot = [a for a in assets if a.asset_type in ("footage", "broll") and a.processing_status != "failed"
+            and not (a.meta or {}).get("stock")]      # hình tải từ kho (Kịch bản → Video) không tính là footage phim
+    voice = any(a.asset_type == "voice" and a.processing_status != "failed" for a in assets)
     cues = db.query(SrtCue).filter_by(project_id=p.id).count()
     plan = db.query(EditPlanRow).filter_by(project_id=p.id).count()
     ps = p.settings or {}
@@ -65,7 +66,9 @@ def _step(pid: str, text: str, status: str = "analyzing"):
         db.commit()
 
 
-def _finish(pid: str, error: str | None = None, notes: list[str] | None = None):
+def _finish(pid: str, error: str | None = None, notes: list[str] | None = None, render: str | None = None):
+    """Kết thúc một quy trình tự động. render="preview"|"final": xếp hàng xuất video NGAY trong cùng lần lưu
+    (trạng thái chuyển thẳng sang 'rendering', giao diện không thấy khoảng 'xong' giả ở giữa)."""
     with SessionLocal() as db:
         p = db.get(Project, pid)
         has_plan = db.query(EditPlanRow).filter_by(project_id=pid, validation_status="valid").count() > 0
@@ -74,7 +77,19 @@ def _finish(pid: str, error: str | None = None, notes: list[str] | None = None):
             p.status, p.error_message = "failed", error[:1000]
         else:
             p.status = "plan_ready" if has_plan else "draft"
+        if not error and render and _renderable(db, pid):
+            from ..utils.paths import find_binary
+            from .render_worker import latest_valid_plan, queue_render
+            if find_binary("ffmpeg"):
+                queue_render(db, p, latest_valid_plan(db, pid).id, render if render in ("preview", "final") else "preview")
+                return
         db.commit()
+
+
+def _renderable(db, pid: str) -> bool:
+    """Chỉ xuất khi bản dựng MỚI NHẤT hợp lệ (bản mới còn lỗi thì không xuất nhầm bản cũ)."""
+    newest = db.query(EditPlanRow).filter_by(project_id=pid).order_by(EditPlanRow.version.desc()).first()
+    return newest is not None and newest.validation_status == "valid"
 
 
 def _scene_notes(pid: str) -> list[str]:
@@ -85,6 +100,18 @@ def _scene_notes(pid: str) -> list[str]:
                 if s.get("description"):
                     out.append(f"- {a.file_name} {s['start']:.0f}s: {s.get('shot_type') or ''} {s['description']}")
         return out
+
+
+def _broll_opts(ps: dict, title: str, opts: dict) -> dict:
+    from ..services import styles
+    b = ps.get("broll") or {}
+    sid = b.get("style") or opts.get("style")
+    try:
+        styles.get(sid)
+    except (ValueError, KeyError, TypeError):
+        sid = "fin_faceless"
+    return {"style": sid, "media": b.get("media"), "topic": b.get("topic") or title or "", "script": None,
+            "target_seconds": b.get("target_seconds") or None, "render": opts.get("render"), "factcheck": True}
 
 
 def run_autofill(pid: str, opts: dict | None = None):
@@ -99,14 +126,20 @@ def run_autofill(pid: str, opts: dict | None = None):
             title, genre, lang = p.movie_title or p.title, p.genre or "", p.language or "vi"
             target = p.target_duration_seconds or 480
         if st["footage"] != "ok":
-            _finish(pid, None, ["Chưa có footage — thêm video phim để AI tiếp tục."])
+            if opts.get("full"):         # bấm ⚡ Tự động: không có footage -> Kịch bản → Video (tự tìm hình minh hoạ)
+                from . import broll_worker
+                broll_worker.run_broll(pid, _broll_opts(ps, title, opts))
+            else:
+                _finish(pid, None, ["Chưa có footage — thêm video phim, hoặc bấm “⚡ Tự động tạo video” để AI tự tìm "
+                                    "ảnh/video minh hoạ (chế độ Kịch bản → Video)."])
             return
         need_script = st["script"] == "ai"
 
-        if st["scenes"] != "ok" or (need_script and settings.anthropic_api_key):
-            _step(pid, "AI đang phân tích cảnh phim…" if need_script else "Đang phân tích cảnh phim…")
+        tag = bool((need_script or opts.get("tag_scenes")) and settings.anthropic_api_key)
+        if st["scenes"] != "ok" or tag:
+            _step(pid, "AI đang phân tích cảnh phim…" if tag else "Đang phân tích cảnh phim…")
             # Phải tự viết kịch bản -> cần biết cảnh có gì: gắn nhãn cảnh bằng AI (model nhanh, rẻ).
-            analyze_worker.analyze_project(pid, bool(need_script and settings.anthropic_api_key))
+            analyze_worker.analyze_project(pid, tag)
             notes.append("Đã phân tích cảnh phim")
 
         script = (ps.get("script") or "").strip()
@@ -165,7 +198,7 @@ def run_autofill(pid: str, opts: dict | None = None):
             has_plan = db.query(EditPlanRow).filter_by(project_id=pid).count() > 0
         if not has_plan or opts.get("replan"):
             _step(pid, "Claude đang lên bản dựng…")
-            plan_worker.generate_plan(pid, None, None)
+            plan_worker.generate_plan(pid, opts.get("allow_spoilers"), opts.get("style"))
             notes.append("Claude đã lên bản dựng")
         with SessionLocal() as db:
             p = db.get(Project, pid)
@@ -186,7 +219,7 @@ def run_autofill(pid: str, opts: dict | None = None):
                 notes.append("Đã tạo tiêu đề / mô tả / hashtag")
             except Exception as e:          # phần phụ: lỗi không chặn kết quả chính
                 notes.append(f"Chưa tạo được tiêu đề: {friendly(e)}")
-        _finish(pid, None, notes)
+        _finish(pid, None, notes, opts.get("render"))
     except Exception as e:
         log.exception("Tự bổ sung lỗi")
         _finish(pid, friendly(e), notes)

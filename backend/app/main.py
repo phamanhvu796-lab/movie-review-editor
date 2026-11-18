@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .api import auto, connections, edit_plans, projects, renders, system, voice
-from .api import assist
+from .api import assist, broll
 from .api import auth as auth_api
 from .auth import COOKIE, auth
 from .api import settings as settings_api
@@ -66,6 +66,6 @@ async def require_login(request: Request, call_next):
     return resp
 
 
-for r in (auth_api.router, assist.router, projects.router, edit_plans.router, renders.router, voice.router, auto.router, connections.router, system.router, settings_api.router):
+for r in (auth_api.router, assist.router, broll.router, projects.router, edit_plans.router, renders.router, voice.router, auto.router, connections.router, system.router, settings_api.router):
     app.include_router(r)
 app.mount("/", StaticFiles(directory=str(resource_dir() / "static"), html=True), name="static")

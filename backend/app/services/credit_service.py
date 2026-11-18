@@ -98,6 +98,13 @@ def llm_credit(conn: dict) -> dict:
         out["note"] = "Chưa có key"
     elif not host or host.endswith("anthropic.com"):
         out["note"] = "Anthropic không cho xem số dư qua API — xem ở console.anthropic.com, hoặc đặt hạn mức để app tự trừ."
+    elif host == "deepseek.com" or host.endswith(".deepseek.com"):
+        from . import deepseek
+        out["balance"] = deepseek.balance(conn)
+        if out["balance"] is None:
+            out["note"] = "Không đọc được số dư DeepSeek — xem ở platform.deepseek.com."
+        elif not out["balance"].get("available", True):
+            out["note"] = "Tài khoản DeepSeek hết tiền hoặc bị khoá — nạp thêm ở platform.deepseek.com."
     elif "openrouter.ai" in host:
         out["balance"] = _openrouter(conn)
     else:
@@ -137,10 +144,13 @@ def summary(refresh: bool = False) -> dict:
     llm = [c for c in settings.connections("llm") if c.get("enabled", True)]
     el = [c for c in settings.connections("elevenlabs") if c.get("enabled", True) and c.get("api_key")]
     oa = [c for c in settings.connections("openai_tts") if c.get("enabled", True) and c.get("api_key")]
-    jobs = [(llm_credit, c) for c in llm] + [(_tts_eleven, c) for c in el] + [(_tts_openai, c) for c in oa]
+    ds = [c for c in settings.connections("deepseek") if c.get("enabled", True)]
+    jobs = ([(llm_credit, c) for c in llm] + [(_tts_eleven, c) for c in el] + [(_tts_openai, c) for c in oa]
+            + [(llm_credit, c) for c in ds])
     with ThreadPoolExecutor(max_workers=max(1, min(6, len(jobs)))) as ex:
         res = list(ex.map(lambda j: j[0](j[1]), jobs))
-    out = {"llm": res[:len(llm)], "elevenlabs": res[len(llm):len(llm) + len(el)], "openai_tts": res[len(llm) + len(el):],
+    n1, n2, n3 = len(llm), len(llm) + len(el), len(llm) + len(el) + len(oa)
+    out = {"llm": res[:n1], "elevenlabs": res[n1:n2], "openai_tts": res[n2:n3], "deepseek": res[n3:],
            "active_llm": settings.active_connection_id("llm") or (settings.active_connection("llm") or {}).get("id", ""),
            "checked_at": time.time()}
     chars = [x["chars"] for x in out["elevenlabs"] if x.get("chars")]

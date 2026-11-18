@@ -34,6 +34,8 @@ hr{border:0;border-top:1px solid var(--bd);margin:14px 0}small{color:var(--mut);
 .msg{padding:8px 10px;border-radius:10px;max-width:92%;white-space:pre-wrap;word-break:break-word;line-height:1.4}
 .msg.u{align-self:flex-end;background:var(--ac2);color:#fff}.msg.a{align-self:flex-start;background:var(--p2);border:1px solid var(--bd)}
 .msg small{margin-top:4px}.msg.wait{opacity:.7;font-style:italic}
+.focusbar{display:flex;gap:6px;align-items:flex-start;background:#f5a62322;border:1px solid #f5a623;border-radius:8px;padding:6px 8px;font-size:12px}.focusbar span{flex:1}
+.bgjob{font-size:12px;background:var(--p2);border:1px dashed var(--bd);border-radius:8px;padding:6px 8px}
 .chips{display:flex;flex-wrap:wrap;gap:5px}.chips button{font-size:11px;padding:3px 8px;border-radius:99px}
 .chatin{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:end}.chatin textarea{resize:none;min-height:38px;max-height:120px}
 #rbody.chatmode{display:flex;flex-direction:column}#rbody.chatmode>.chat{flex:1;min-height:0}
@@ -51,6 +53,7 @@ hr{border:0;border-top:1px solid var(--bd);margin:14px 0}small{color:var(--mut);
 .gpane{display:grid;gap:10px}.gcode{font:600 22px ui-monospace,Consolas,monospace;letter-spacing:.18em;text-align:center;text-transform:uppercase}
 .glink{background:none;border:0;padding:0;color:var(--ac);cursor:pointer;font-size:12px;text-align:left}
 #licChip{border:1px solid var(--bd);border-radius:20px;padding:3px 10px;font-size:12px;cursor:pointer;white-space:nowrap}#licChip.warn{color:var(--wa);border-color:var(--wa)}
+b.warn,span.warn{color:var(--wa)}
 .flist{display:grid;gap:3px;max-height:260px;overflow:auto;margin:6px 0}.flist label{display:grid;grid-template-columns:auto 1fr auto;gap:6px;align-items:center;font-size:12px}
 .flist small{white-space:nowrap}.hwgrid{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px}.hwgrid span:nth-child(odd){color:var(--mut)}
 #top{display:flex;align-items:center;gap:12px;padding:0 14px;background:var(--p1);border-bottom:1px solid var(--bd)}
@@ -88,6 +91,7 @@ button.x{padding:2px 8px;flex:none}.chk{display:flex;gap:6px;align-items:center;
 #plogo{position:absolute;display:none;pointer-events:none}
 #pempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px;color:var(--mut);background:#0b0d11}
 #transport{display:flex;align-items:center;gap:10px;padding:0 12px;background:var(--p1);border-top:1px solid var(--bd)}
+.seg{display:inline-flex;gap:0;flex-wrap:wrap}.seg button{padding:5px 10px;border-radius:0}.seg button:first-child{border-radius:6px 0 0 6px}.seg button:last-child{border-radius:0 6px 6px 0}.seg button.on{background:var(--ac);border-color:var(--ac);color:#fff}
 #transport .grow{flex:1}#transport .seg button{padding:5px 10px}#transport .seg button.on{background:var(--ac);border-color:var(--ac);color:#fff}
 #transport input[type=range]{width:110px}
 #tl{display:grid;grid-template-columns:86px minmax(0,1fr);background:var(--p1);border-top:1px solid var(--bd);min-height:0}
@@ -180,6 +184,7 @@ dialog{background:var(--p1);color:var(--tx);border:1px solid var(--bd);border-ra
    <div id="transport">
      <button id="bPlay" data-act="play" title="Phát / tạm dừng (Space)">▶</button>
      <span id="tcur">0:00 / 0:00</span>
+     <button id="bFix" data-act="fixHere" title="Dừng ở đoạn chưa ưng rồi bấm: nhờ trợ lý AI sửa đúng đoạn này, xong tự dựng lại ngầm">📍 Sửa đoạn này</button>
      <input id="scrub" type="range" min="0" max="1000" value="0" class="grow">
      <span class="seg"><button id="mLive" data-act="mode" data-m="live" class="on">Xem nhanh</button><button id="mExp" data-act="mode" data-m="export">Video đã xuất</button></span>
      <label style="display:flex;gap:6px;align-items:center">Thu phóng<input id="tzoom" type="range" min="2" max="40" value="8"></label>
@@ -436,6 +441,7 @@ const num=x=>(+x||0).toLocaleString('vi-VN');
 function creditText(c){       // một nguồn Claude -> chuỗi ngắn
   if(!c)return '';const b=c.balance,u=c.usage||{};
   if(b&&b.unlimited)return `không giới hạn · đã dùng ${usd(b.used_usd)}`;
+  if(b&&b.currency&&b.currency!=='USD'&&b.remaining!=null)return `còn ${(+b.remaining).toLocaleString('vi-VN',{maximumFractionDigits:2})} ${b.currency}`;
   if(b&&b.remaining_usd!=null)return `còn ${usd(b.remaining_usd)}${b.limit_usd?' / '+usd(b.limit_usd):''}${b.approx?' (ước tính)':''}`;
   if(c.budget)return `còn ~${usd(c.budget.remaining_usd)} / hạn mức ${usd(c.budget.limit_usd)}`;
   return `đã dùng ~${usd(u.usd)} (ước tính)`;
@@ -512,7 +518,7 @@ async function enterApp(){
 async function loadConns(){S.conns=await api('/connections')}
 async function loadProjects(){S.projects=await api('/projects')}
 async function openProject(id){
-  pause();S.pid=id;S.sel=null;S.plan=null;S.planRow=null;S.dirty=false;S.mode='live';S.exportUrl=null;S.badSrc={};
+  pause();S.fc=null;S.bDraft=null;S.chatAt=null;S.chatCue=null;S.autoView=null;S.exportId=null;S.pid=id;S.sel=null;S.plan=null;S.planRow=null;S.dirty=false;S.mode='live';S.exportUrl=null;S.badSrc={};
   try{localStorage.setItem('lastProject',id)}catch{}
   history.replaceState(null,'','#/p/'+id);
   await loadProject();
@@ -569,24 +575,87 @@ async function poll(){
       const an=(S.project.settings||{}).autofill_notes;if(an&&an.length&&an.join()!==S.lastNotes){S.lastNotes=an.join();toast(an.join('\n'),'ok')}
       loadCredits(true);loadReady();
       if(S.project.status==='failed'&&S.project.error_message)toast(S.project.error_message,'err');
-      if(S.exportUrl&&S.renders[0]&&S.renders[0].status==='completed'&&!S.dirty)setMode('export');
+      const nr=S.renders[0]&&S.renders[0].status==='completed'?S.renders[0]:null;
+      if(S.autoView&&!nr&&S.renders[0]&&S.renders[0].status==='failed')S.autoView=null;
+      if(S.autoView&&nr&&!S.dirty){         // trợ lý AI vừa dựng lại xong -> tự phát bản mới, quay về đoạn vừa sửa
+        const back=S.autoView.at;S.autoView=null;S.exportId=nr.id;S.exportUrl=`/api/renders/${nr.id}/download?kind=video&inline=1`;
+        if(S.mode==='export'){S.mode='live'}setMode('export');
+        if(back!=null)pv.addEventListener('loadedmetadata',()=>{try{pv.currentTime=Math.max(0,back-1.5)}catch{}},{once:true});
+        toast('✓ Đã dựng lại xong theo yêu cầu — đang phát bản mới','ok');
+      }else if(S.exportUrl&&S.renders[0]&&S.renders[0].status==='completed'&&!S.dirty)setMode('export');
       renderAll();
     }else{refreshBusyViews()}
     S.wasBusy=nowBusy;
   }catch(e){}
 }
-function refreshBusyViews(){if(S.menu==='export'||S.menu==='assets'||S.menu==='plan')renderLeft()}
+function refreshBusyViews(){if(S.menu==='export'||S.menu==='assets'||S.menu==='plan')renderLeft();if(S.rtab==='chat'&&!S.chatBusy){const t=$('#chatIn'),f=t&&document.activeElement===t;if(!f)renderRight()}}
 
 /* ================= Menu trái ================= */
-const MENU=[['project','📁','Dự án'],['assets','🎞','Tài nguyên'],['script','📝','Kịch bản'],['voice','🎙','Giọng AI'],['plan','🤖','Bản dựng'],['export','📤','Xuất video'],['settings','⚙','Cài đặt']];
+const MENU=[['project','📁','Dự án'],['broll','🎬','Kịch bản → Video'],['assets','🎞','Tài nguyên'],['script','📝','Kịch bản'],['voice','🎙','Giọng AI'],['plan','🤖','Bản dựng'],['export','📤','Xuất video'],['settings','⚙','Cài đặt']];
 function renderMenu(){$('#menu').innerHTML=MENU.map(([k,i,t])=>`<button class="${S.menu===k?'on':''}" data-act="menu" data-k="${k}"><span>${i}</span>${t}</button>`).join('')}
 function renderLeft(){
-  const f={project:lProject,assets:lAssets,script:lScript,voice:lVoice,plan:lPlan,export:lExport,settings:lSettings}[S.menu];
+  const f={project:lProject,broll:lBroll,assets:lAssets,script:lScript,voice:lVoice,plan:lPlan,export:lExport,settings:lSettings}[S.menu];
   const scroll=$('#lbody').scrollTop;f();$('#lbody').scrollTop=scroll;
 }
 const ffmpegBox=()=>S.cfg.ffmpeg?'':`<div class="dirty" style="margin-bottom:10px"><b>Thiếu FFmpeg</b> — cần để tạo giọng đọc, xem trước và xuất video.<div class="row"><button class="p" data-act="installFfmpeg">Tải FFmpeg tự động</button></div><div id="ffStatus" class="mut"></div></div>`;
 const needProject=()=>{$('#lbody').innerHTML='<p class="mut">Hãy tạo hoặc chọn một dự án trước (menu “Dự án”).</p>';return true};
 
+/* ================= Kịch bản -> Video (tự tìm hình minh hoạ) ================= */
+/* ================= DeepSeek: kiểm tra & kiểm chứng kịch bản ================= */
+const dsOn=()=>!!(((S.conns||{}).deepseek||{}).connections||[]).some(c=>c.enabled);
+const VERD={sai:['✗ Sai','err'],chua_chac:['? Chưa chắc','warn'],can_nguon:['ⓘ Nên nêu nguồn','mut'],dung:['✓ Đúng','ok']};
+function fcHtml(where){
+  const fc=S.fc||((S.project||{}).settings||{}).factcheck;
+  const head=`<h3>🔎 Kiểm tra & kiểm chứng (DeepSeek)</h3>`;
+  if(!dsOn())return head+`<small>Gắn API DeepSeek ở ⚙ Cài đặt → mục 🔎 DeepSeek để AI soát lỗi sự kiện, số liệu, tên riêng và chính tả trước khi làm video.</small><div class="row"><button data-act="menu" data-k="settings">Mở Cài đặt</button></div>`;
+  const btn=`<div class="row"><button class="p" data-act="fcRun" data-w="${where}" ${S.fcBusy?'disabled':''}>${S.fcBusy?'DeepSeek đang kiểm tra…':where==='broll'?'🔎 Kiểm tra kịch bản':'🔎 Kiểm tra phụ đề'}</button></div>`;
+  if(!fc||!fc.claims)return head+`<small>${where==='broll'?'Bấm để soát kịch bản trong ô trên. Khi bấm “Tạo video tự động”, kịch bản do AI viết cũng được DeepSeek soát và tự sửa.':'Soát toàn bộ phụ đề hiện có.'}</small>`+btn;
+  const order=['sai','chua_chac','can_nguon','dung'],cl=[...fc.claims].sort((a,b)=>order.indexOf(a.verdict)-order.indexOf(b.verdict));
+  const show=S.fcAll?cl:cl.filter(c=>c.verdict!=='dung');
+  const items=show.map((c,i)=>{const [lb,cls]=VERD[c.verdict]||VERD.chua_chac,idx=fc.claims.indexOf(c);
+    return `<div class="item" style="cursor:default"><b class="${cls}" style="display:inline">${lb}</b> <small style="display:inline">“${esc(c.quote)}”</small><small>${esc(c.reason)}</small>${c.fix?`<small>→ <i>${esc(c.fix)}</i></small>${where==='broll'&&c.found?`<div class="row" style="margin:4px 0 0"><button data-act="fcFix" data-i="${idx}">Thay câu này</button></div>`:''}`:''}</div>`}).join('')||'<p class="ok">Không thấy nhận định nào sai hay đáng ngờ.</p>';
+  const iss=(fc.issues||[]).map(x=>`<li>${x.quote?'“'+esc(x.quote)+'”: ':''}${esc(x.problem)}${x.fix?' → <i>'+esc(x.fix)+'</i>':''}</li>`).join('');
+  const n=fc.counts||{},bad=(n.sai||0)+(n.chua_chac||0);
+  const acts=where==='broll'
+    ?(fc.corrected_script?`<button class="p" data-act="fcApplyAll">✓ Dùng bản đã sửa cho cả kịch bản</button>`:'')
+    :(bad||(fc.issues||[]).length?`<button class="p" data-act="fcToChat">💬 Nhờ trợ lý Claude sửa phụ đề theo đề xuất</button>`:'');
+  return head+`<div class="hwgrid"><span>Độ tin cậy</span><span class="${fc.score>=80?'ok':fc.score>=50?'':'err'}"><b>${fc.score}/100</b></span><span>Kết quả</span><span>${n.sai||0} sai · ${n.chua_chac||0} chưa chắc · ${n.can_nguon||0} nên nêu nguồn · ${n.dung||0} đúng</span></div>
+   ${fc.summary?`<small>${esc(fc.summary)}</small>`:''}${fc.applied?'<small class="ok">✓ Đã tự sửa kịch bản do AI viết theo kết quả này.</small>':''}
+   ${items}${iss?`<small>Lỗi khác:</small><ul style="margin:2px 0 6px 18px;font-size:12px">${iss}</ul>`:''}
+   <div class="row">${acts}<button data-act="fcToggle">${S.fcAll?'Ẩn câu đúng':'Xem cả câu đúng'}</button></div>
+   <small class="mut">DeepSeek đánh giá theo hiểu biết của model, không tự tra cứu web — mục “chưa chắc” nên kiểm tra lại với nguồn chính thức.</small>`+btn;
+}
+async function loadBrollStyles(){if(S.bstyles)return;try{S.bstyles=await api('/broll/styles');if(S.menu==='broll')lBroll()}catch{}}
+function lBroll(){
+  if(!S.bstyles){loadBrollStyles();$('#lbody').innerHTML='<p class="mut">Đang tải…</p>';return}
+  if(!S.pid&&needProject())return;
+  const B=S.bstyles,ps=(S.project.settings||{}),cur=ps.broll||{},sid=S.bStyle||cur.style||'fin_faceless';
+  const st=B.styles.find(x=>x.id===sid)||B.styles[0],media=S.bMedia||cur.media||st.media;
+  const busy=['analyzing','rendering'].includes(S.project.status),k=B.keys;
+  const groups=Object.entries(B.groups).map(([g,lb])=>`<optgroup label="${esc(lb)}">${B.styles.filter(x=>x.group===g).map(x=>`<option value="${x.id}" ${x.id===sid?'selected':''} ${x.disabled?'disabled':''}>${esc(x.label)}${x.aspect==='9:16'?' · dọc 9:16':''}</option>`).join('')}</optgroup>`).join('');
+  const hasScript=!!(ps.script||'').trim(),hasVoice=S.assets.some(a=>a.asset_type==='voice');
+  $('#lbody').innerHTML=`${ffmpegBox()}<h3>Kịch bản → Video tự động</h3>
+   <small>Claude đọc từng câu → tự tìm ảnh/video phù hợp trên kho <b>miễn phí bản quyền</b> (Pexels, Pixabay, Wikimedia) → dựng khớp giọng đọc, có phụ đề.</small>
+   <label style="margin-top:8px">Phong cách<select id="bStyle">${groups}</select></label>
+   ${st.note?`<div class="dirty" style="margin:6px 0"><small>${esc(st.note)}</small></div>`:''}
+   <label>Hình minh hoạ<div class="seg" id="bMediaSeg">${Object.entries(B.media).map(([m,lb])=>`<button data-act="bMedia" data-m="${m}" class="${m===media?'on':''}">${esc(lb)}</button>`).join('')}</div></label>
+   <label>Chủ đề <span class="mut">(AI viết kịch bản nếu ô kịch bản trống)</span><input id="bTopic" value="${esc(cur.topic||'')}" placeholder="vd: Lạm phát là gì và ảnh hưởng tới tiền tiết kiệm"></label>
+   <label>Kịch bản / lời đọc <span class="mut">(dán vào nếu đã có)</span><textarea id="bScript" rows="7" placeholder="Mỗi câu một ý — app tự tạo giọng đọc + phụ đề SRT từ kịch bản này">${esc(S.bDraft??ps.script??'')}</textarea></label>
+   <label>Độ dài mong muốn khi AI viết (giây)<input id="bLen" type="number" min="15" max="3600" value="${cur.target_seconds||st.max_seconds||180}"></label>
+   <label class="chk"><input type="checkbox" id="bRender" checked> Dựng video xem thử ngay khi xong</label>
+   ${dsOn()?'<label class="chk"><input type="checkbox" id="bFact" checked> DeepSeek kiểm chứng kịch bản trước khi làm giọng</label>':''}
+   <div class="row"><button class="p big" data-act="bStart" ${busy?'disabled':''}>⚡ Tạo video tự động</button></div>
+   ${fcHtml('broll')}
+   <small>${hasVoice?'✓ Dùng giọng đọc đã có trong dự án.':(S.cfg.has_tts?'Giọng đọc: AI tự đọc kịch bản (chỉnh giọng ở mục Giọng AI).':'Giọng đọc: cần key ElevenLabs/OpenAI TTS (⚙ Cài đặt), hoặc tải file voice-over ở Tài nguyên.')}
+   Phụ đề SRT tạo tự động từ kịch bản. Xong có thể sửa bằng 🤖 Chat AI bên phải.</small>
+   <h3>Kho ảnh / video miễn phí</h3>
+   <div class="hwgrid"><span>Pexels</span><span class="${k.pexels?'ok':'mut'}">${k.pexels?'✓ đã có key':'chưa có key'}</span><span>Pixabay</span><span class="${k.pixabay?'ok':'mut'}">${k.pixabay?'✓ đã có key':'chưa có key'}</span><span>Wikimedia</span><span class="ok">✓ không cần key (ảnh tư liệu)</span></div>
+   <small>Lấy key miễn phí (1 phút): <b>pexels.com/api</b> và <b>pixabay.com/api/docs</b> (đăng ký → copy API key). Không có key thì chỉ có ảnh Wikimedia, không có video.</small>
+   <label>Pexels API key<input id="kPexels" type="password" placeholder="${k.pexels?'•••••• (đã lưu — nhập để đổi)':'dán key Pexels'}"></label>
+   <label>Pixabay API key<input id="kPixabay" type="password" placeholder="${k.pixabay?'•••••• (đã lưu — nhập để đổi)':'dán key Pixabay'}"></label>
+   <div class="row"><button data-act="bKeys">Lưu & kiểm tra key</button><button data-act="bCredits">📄 Nguồn hình (ghi vào mô tả video)</button></div>`;
+  $('#bScript').oninput=e=>{S.bDraft=e.target.value};
+}
 function lProject(){
   const list=S.projects.map(p=>`<div class="item ${p.id===S.pid?'on':''}" data-act="open" data-id="${p.id}"><b>${esc(p.title)}</b><small>${esc(p.movie_title||'')} · ${STATUS[p.status]||p.status}</small></div>`).join('')||'<p class="mut">Chưa có dự án nào.</p>';
   $('#lbody').innerHTML=`<h3>Tạo dự án mới</h3><div class="form">
@@ -679,6 +748,7 @@ function lScript(){
    <input id="sFile" type="file" accept=".srt,.vtt"><div class="row"><button data-act="srtUpload">Tải file SRT/VTT</button><button data-act="transcribe">Tạo từ giọng đọc (Whisper)</button></div>
    <textarea id="sText" rows="4" placeholder="Hoặc dán nội dung SRT vào đây" style="margin-top:8px"></textarea><button data-act="srtParse" style="margin-top:6px;width:100%">Nạp SRT đã dán</button>
    <div id="sIssues" class="err" style="white-space:pre-wrap"></div>
+   ${S.cues.length?fcHtml('script'):''}
    <h3>Phụ đề (${S.cues.length} câu)</h3>${rows||'<p class="mut">Chưa có phụ đề.</p>'}`;
 }
 function lVoice(){
@@ -697,9 +767,9 @@ function lVoice(){
   updVInfo();
   if(!S.voiceList.length&&!S.voicesTried){S.voicesTried=true;loadVoices(true)}
 }
-function updVInfo(){const el=$('#vInfo'),t=$('#vText');if(!el||!t)return;const n=t.value.length,m=S.v.qual==='fast'?.5:1;el.textContent=`${n.toLocaleString()} ký tự`+(S.quota&&S.v.prov==='elevenlabs'?` · cần ~${Math.ceil(n*m).toLocaleString()} / còn ${S.quota.remaining.toLocaleString()}`:'')}
+function updVInfo(){const el=$('#vInfo'),t=$('#vText');if(!el||!t)return;const n=t.value.length,m=S.v.qual==='fast'?.5:1;el.textContent=`${n.toLocaleString()} ký tự`+(S.quota&&S.quota.remaining!=null&&S.v.prov==='elevenlabs'?` · cần ~${num(Math.ceil(n*m))} / còn ${num(S.quota.remaining)}`:'')}
 async function loadVoices(quiet){
-  try{S.voiceList=await api('/tts/voices?provider='+S.v.prov);if(!S.voiceList.some(x=>x.id===S.v.voice))S.v.voice=(S.voiceList[0]||{}).id||''}catch(e){if(!quiet)toast(e.message,'err')}
+  try{const vl=await api('/tts/voices?provider='+S.v.prov);S.voiceList=Array.isArray(vl)?vl:[];if(!S.voiceList.some(x=>x.id===S.v.voice))S.v.voice=(S.voiceList[0]||{}).id||''}catch(e){if(!quiet)toast(e.message,'err')}
   try{S.quota=S.v.prov==='elevenlabs'?await api('/tts/quota'):null}catch{S.quota=null}
   if(S.menu==='voice')lVoice();
 }
@@ -735,6 +805,7 @@ function lExport(){
 }
 const SVC=[
  ['llm','Claude — bản dựng, gắn nhãn cảnh, tiêu đề','Cần hỗ trợ function calling. Nguồn đang chọn chạy trước; lỗi thì tự chuyển sang nguồn khác.'],
+ ['deepseek','🔎 DeepSeek — kiểm tra kịch bản & kiểm chứng thông tin','Gắn riêng, chỉ dùng để soát kịch bản: tìm chỗ sai sự kiện/số liệu/tên, câu chưa chắc, lỗi chính tả. Lấy key ở platform.deepseek.com → API keys, dán vào là tự kết nối (Base URL để trống = api.deepseek.com/anthropic).'],
  ['elevenlabs','ElevenLabs — giọng đọc AI','Nhiều key sẽ cộng dồn quota; key này hết quota hoặc lỗi thì tự dùng key khác (giọng có sẵn của ElevenLabs dùng được ở mọi key; giọng tự nhân bản chỉ có ở key chủ).'],
  ['openai_tts','OpenAI TTS — giọng đọc dự phòng','Dùng khi chọn dịch vụ OpenAI ở mục Giọng AI.']];
 function creditLine(svc,id){
@@ -747,16 +818,17 @@ function creditLine(svc,id){
 function srcBlock(svc,title,hint){
   const g=(S.conns||{})[svc]||{connections:[],active:''},F=S.connForm&&S.connForm.svc===svc?S.connForm:null,E=F?(g.connections.find(x=>x.id===F.id)||{}):{};
   const rows=g.connections.map(x=>`<div class="item" style="cursor:default"><label class="chk" style="margin:0;color:var(--tx)"><input type="radio" name="act-${svc}" data-svc="${svc}" data-conn-active="${x.id}" ${x.id===g.active?'checked':''}><b style="display:inline">${esc(x.name)}</b></label>
-   ${creditLine(svc,x.id)}<small>${svc==='llm'?(x.protocol==='openai'?'OpenAI-compatible':'Anthropic')+' · ':''}${esc(x.base_url||'địa chỉ mặc định')}${svc==='llm'?' · '+esc(x.model||'model tự chọn'):(svc==='openai_tts'?' · '+esc(x.model||'model tự thử'):'')} · key ${esc(x.key_hint)}</small>
+   ${creditLine(svc,x.id)}<small>${svc==='llm'?(x.protocol==='openai'?'OpenAI-compatible':'Anthropic')+' · ':''}${esc(x.base_url||'địa chỉ mặc định')}${svc==='llm'||svc==='deepseek'?' · '+esc(x.model||'model tự chọn'):(svc==='openai_tts'?' · '+esc(x.model||'model tự thử'):'')} · key ${esc(x.key_hint)}</small>
    <div class="row"><label class="chk" style="margin:0"><input type="checkbox" data-svc="${svc}" data-conn-enabled="${x.id}" ${x.enabled?'checked':''}>Bật</label><button data-act="testConn" data-svc="${svc}" data-id="${x.id}">Kiểm tra</button><button data-act="editConn" data-svc="${svc}" data-id="${x.id}">Sửa</button><button class="d" data-act="delConn" data-svc="${svc}" data-id="${x.id}">Xoá</button></div></div>`).join('')||'<p class="mut">Chưa có nguồn nào.</p>';
   const protos=[['auto','Tự nhận diện'],['anthropic','Anthropic (Messages API)'],['openai','OpenAI-compatible (chat/completions)']];
   const llmFields=svc==='llm'?`<label>Kiểu API<select id="cProto">${protos.map(([v,t])=>`<option value="${v}" ${(E.protocol||'auto')===v?'selected':''}>${t}</option>`).join('')}</select></label>`:'';
   const budget=svc==='llm'?`<label>Hạn mức tự đặt (USD, tuỳ chọn)<input id="cBudget" type="number" min="0" step="0.5" value="${E.budget_usd??''}" placeholder="vd: 20 — app tự trừ theo mức đã dùng"></label>`:'';
-  const llmModels=svc==='llm'?`<div class="two"><label>Model chính<input id="cModel" list="mlist" value="${esc(E.model||'')}" placeholder="để trống = tự chọn"></label><label>Model nhanh<input id="cFast" list="mlist" value="${esc(E.fast_model||'')}" placeholder="tuỳ chọn"></label></div><datalist id="mlist">${(S.modelList||[]).map(m=>`<option value="${esc(m)}">`).join('')}</datalist>`:'';
+  const llmModels=svc==='deepseek'?`<div class="two"><label>Model kiểm tra<input id="cModel" value="${esc(E.model||'')}" placeholder="deepseek-v4-pro (mặc định)"></label><label>Model nhanh<input id="cFast" value="${esc(E.fast_model||'')}" placeholder="deepseek-flash"></label></div>`
+   :svc==='llm'?`<div class="two"><label>Model chính<input id="cModel" list="mlist" value="${esc(E.model||'')}" placeholder="để trống = tự chọn"></label><label>Model nhanh<input id="cFast" list="mlist" value="${esc(E.fast_model||'')}" placeholder="tuỳ chọn"></label></div><datalist id="mlist">${(S.modelList||[]).map(m=>`<option value="${esc(m)}">`).join('')}</datalist>`:'';
   const ttsModel=svc==='openai_tts'?`<label>Model giọng đọc<input id="cModel" list="mlist" value="${esc(E.model||'')}" placeholder="vd: tts-1 hoặc gpt-4o-mini-tts (để trống = tự thử)"></label>`:'';
   const form=F?`<div class="form" style="margin-top:8px"><b>${E.id?'Sửa nguồn':'Thêm nguồn mới'}</b>
-   <label>Tên gọi<input id="cName" value="${esc(E.name||'')}" placeholder="vd: Nguồn A"></label>${llmFields}
-   <label>Base URL<input id="cUrl" value="${esc(E.base_url||'')}" placeholder="${svc==='openai_tts'?'https://api.openai.com/v1':svc==='elevenlabs'?'https://api.elevenlabs.io':'https://api.ten-relay-cua-ban.com/v1'} (để trống = mặc định)" autocomplete="off"></label>
+   <label>Tên gọi<input id="cName" value="${esc(E.name||'')}" placeholder="${svc==='deepseek'?'DeepSeek':'vd: Nguồn A'}"></label>${llmFields}
+   <label>Base URL<input id="cUrl" value="${esc(E.base_url||'')}" placeholder="${svc==='openai_tts'?'https://api.openai.com/v1':svc==='elevenlabs'?'https://api.elevenlabs.io':svc==='deepseek'?'https://api.deepseek.com/anthropic':'https://api.ten-relay-cua-ban.com/v1'} (để trống = mặc định)" autocomplete="off"></label>
    <label>API key ${E.id?'<span class="mut">(để trống = giữ key cũ)</span>':'<span class="mut">— dán vào là tự kết nối</span>'}<input id="cKey" type="password" autocomplete="off" placeholder="sk-…"></label>
    <label>User-Agent (nâng cao, tuỳ chọn)<input id="cUa" value="${esc(E.user_agent||'')}" placeholder="mặc định: giống trình duyệt Chrome" autocomplete="off"></label>${llmModels}${budget}${ttsModel}
    <div class="row"><button class="p" data-act="saveConn" data-svc="${svc}">Kết nối lại</button><button data-act="cancelConn">Huỷ</button></div></div>`
@@ -814,13 +886,17 @@ const CHIPS=['Mở đầu (hook) mạnh hơn','Nhịp nhanh, cắt dồn dập h
 function rChat(){
   if(!S.cfg.has_api_key)return `<div class="chat"><p class="mut">Kết nối Claude để dùng trợ lý AI: vào ⚙ Cài đặt và dán API key.</p><button class="p" data-act="menu" data-k="settings">Mở Cài đặt</button></div>`;
   if(!S.pid)return `<div class="chat"><p class="mut">Tạo hoặc chọn một dự án để bắt đầu chat với AI.</p></div>`;
-  const busy=S.chatBusy||['analyzing','rendering'].includes((S.project||{}).status);
-  const log=S.chat.map(m=>`<div class="msg ${m.role==='user'?'u':'a'}">${esc(m.text)}${m.notes&&m.notes.length?`<small>• ${m.notes.map(esc).join('<br>• ')}</small>`:''}${m.version?`<small>${m.valid?'✓':'⚠'} Đã lưu bản dựng phiên bản ${m.version}${m.valid?'':' (còn lỗi — xem tab Bản dựng)'}</small>`:''}</div>`).join('')
+  const st=(S.project||{}).status,busy=S.chatBusy||st==='analyzing',ps=(S.project||{}).settings||{};
+  const run=S.renders.find(r=>['queued','running'].includes(r.status));
+  const bg=st==='rendering'||run?`<div class="bgjob">🎬 Đang dựng lại video ngầm${run&&run.progress?` · ${run.progress}%`:''}${ps.rerender_pending?' — đã nhận yêu cầu mới, sẽ dựng tiếp bản mới nhất ngay sau đó':''}. Bạn vẫn xem và chat tiếp được; xong sẽ tự phát bản mới.</div>`:'';
+  const fb=S.chatAt!=null?`<div class="focusbar"><span>📍 Sửa đoạn <b>${fmt1(S.chatAt)}</b>${S.chatCue?': “'+esc(S.chatCue.text.slice(0,90))+'”':''}<br><small class="mut">Gõ điều chưa ưng ở đoạn này, ví dụ “cảnh này không khớp lời, đổi cảnh khác”.</small></span><button data-act="fixClear" title="Bỏ chọn đoạn" style="flex:0 0 auto;padding:2px 7px">✕</button></div>`:'';
+  const log=S.chat.map(m=>`<div class="msg ${m.role==='user'?'u':'a'}">${m.at_time!=null?`<small style="margin:0 0 3px">📍 ${fmt1(m.at_time)}</small>`:''}${esc(m.text)}${m.notes&&m.notes.length?`<small>• ${m.notes.map(esc).join('<br>• ')}</small>`:''}${m.version?`<small>${m.valid?'✓':'⚠'} Đã lưu bản dựng phiên bản ${m.version}${m.valid?'':' (còn lỗi — xem tab Bản dựng)'}</small>`:''}</div>`).join('')
     ||`<div class="msg a">Xin chào! Hãy ra lệnh bằng lời, ví dụ “làm mở đầu kịch tính hơn”, “đổi cảnh câu 5 sang cảnh cận mặt”, “màu đen trắng cả video”. Mình sẽ sửa bản dựng ngay.${S.plan?'':'\n\nDự án chưa có bản dựng — bấm “⚡ Tự động edit” để AI làm từ đầu.'}</div>`;
   return `<div class="chat"><div class="row" style="margin:0"><button class="p" data-act="autoEdit" ${busy?'disabled':''}>⚡ Tự động edit</button>${S.chat.length?'<button data-act="chatClear" style="flex:0 0 auto">Xoá chat</button>':''}</div>
-   <div id="chatLog" class="chatlog">${log}${S.chatBusy?'<div class="msg a wait">AI đang sửa bản dựng…</div>':''}</div>
+   <div id="chatLog" class="chatlog">${log}${S.chatBusy?'<div class="msg a wait">AI đang sửa bản dựng…</div>':''}</div>${bg}${fb}
+   <label class="chk" style="margin:0;font-size:12px"><input type="checkbox" id="autoRe" ${S.autoRe!==false?'checked':''}> Sửa xong tự dựng lại video ngầm</label>
    <div class="chips">${CHIPS.map(c=>`<button data-act="chatChip" data-t="${esc(c)}" ${busy?'disabled':''}>${esc(c)}</button>`).join('')}</div>
-   <div class="chatin"><textarea id="chatIn" rows="2" placeholder="Nhập yêu cầu cho AI… (Enter gửi, Shift+Enter xuống dòng)" ${busy?'disabled':''}></textarea><button class="p" data-act="chatSend" ${busy?'disabled':''}>Gửi</button></div></div>`;
+   <div class="chatin"><textarea id="chatIn" rows="2" placeholder="${S.chatAt!=null?'Đoạn này chưa ưng ở điểm nào?':'Nhập yêu cầu cho AI…'} (Enter gửi, Shift+Enter xuống dòng)" ${busy?'disabled':''}></textarea><button class="p" data-act="chatSend" ${busy?'disabled':''}>Gửi</button></div></div>`;
 }
 function rClip(){
   if(!S.plan)return '<p class="mut">Chưa có bản dựng. Bấm <b>⚡ Tự động tạo video</b> ở trên cùng, hoặc vào menu “Bản dựng”.</p>';
@@ -1067,12 +1143,52 @@ const ACT={
   genPlan:()=>runBusy(()=>send('POST',`/projects/${S.pid}/edit-plan/generate`,{allow_spoilers:$('#pSpoil').checked,style:$('#pStyle').value}),'Claude đang lên bản dựng…'),
   auto:()=>{if(!S.pid)return toast('Hãy tạo hoặc chọn dự án trước','err');
     const sp=$('#pSpoil'),st=$('#pStyle');
-    runBusy(()=>send('POST',`/projects/${S.pid}/auto`,{allow_spoilers:sp?sp.checked:null,style:st?st.value:null,render:true}),'Bắt đầu tự động: phân tích → bản dựng → xem thử')},
+    if(S.dirty&&!confirm('Bản dựng có thay đổi chưa lưu — tự động tạo lại sẽ bỏ thay đổi đó. Tiếp tục?'))return;
+    const foot=S.assets.some(a=>['footage','broll'].includes(a.asset_type)&&!(a.meta||{}).stock);
+    S.autoView={at:null};
+    runBusy(()=>send('POST',`/projects/${S.pid}/auto`,{allow_spoilers:sp?sp.checked:null,style:st?st.value:null,render:true,quality:'final'}),
+      foot?'Bắt đầu tự động: phân tích cảnh → bản dựng → xuất video 1080p':'Bắt đầu tự động: kịch bản/SRT + giọng đọc → tìm hình minh hoạ → dựng → xuất video 1080p')},
   restore:async()=>{try{await send('POST',`${planUrl()}/${S.planRow.id}/restore`);await loadPlans();renderAll();toast('Đã khôi phục','ok')}catch(e){toast(e.message,'err')}},
   render:()=>{
     runBusy(()=>send('POST',`/projects/${S.pid}/renders`,{...S.opts,edit_plan_id:S.planRow?S.planRow.id:null}),'Bắt đầu xuất video…').then(()=>loadRenders().then(()=>renderLeft()))},
   cancelRender:async el=>{try{await send('POST',`/renders/${el.dataset.id}/cancel`);toast('Đang huỷ…');await loadRenders();renderLeft()}catch(e){toast(e.message,'err')}},
-  viewRender:el=>{S.exportUrl=`/api/renders/${el.dataset.id}/download?kind=video&inline=1`;if(S.mode==='export'){S.mode='live'}setMode('export');pv.src=S.exportUrl},
+  viewRender:el=>{S.exportId=el.dataset.id;S.exportUrl=`/api/renders/${el.dataset.id}/download?kind=video&inline=1`;if(S.mode==='export'){S.mode='live'}setMode('export');pv.src=S.exportUrl},
+  bMedia:el=>{S.bMedia=el.dataset.m;lBroll()},
+  bStart:async()=>{
+    const body={style:$('#bStyle').value,media:S.bMedia||((S.project.settings||{}).broll||{}).media||null,topic:$('#bTopic').value.trim(),
+      script:$('#bScript').value,target_seconds:+$('#bLen').value||null,render:$('#bRender').checked,factcheck:$('#bFact')?$('#bFact').checked:false};
+    if(!body.script.trim()&&!body.topic&&!S.assets.some(a=>a.asset_type==='voice'))return toast('Nhập chủ đề hoặc dán kịch bản','err');
+    if(!S.bstyles.keys.pexels&&!S.bstyles.keys.pixabay&&!confirm('Chưa có key Pexels/Pixabay: chỉ tìm được ảnh Wikimedia (không có video). Vẫn tiếp tục?'))return;
+    const hasCues=S.cues&&S.cues.length;
+    if(hasCues&&body.script.trim()&&body.script.trim()!==((S.project.settings||{}).script||'').trim()&&!confirm('Kịch bản đã thay đổi. Giọng đọc + phụ đề cũ vẫn được giữ — muốn đọc lại theo kịch bản mới, hãy xoá giọng cũ ở mục Tài nguyên trước. Tiếp tục?'))return;
+    S.bDraft=null;S.fc=null;runBusy(()=>send('POST',`/projects/${S.pid}/broll`,body),body.factcheck?'Đang tạo video tự động (DeepSeek soát kịch bản trước)…':'Đang tạo video tự động…')},
+  fcRun:async el=>{
+    if(S.fcBusy)return;const w=el.dataset.w,body={};
+    if(w==='broll'){const sc=$('#bScript').value.trim();if(!sc)return toast('Dán kịch bản vào ô trước (hoặc để AI viết rồi kiểm tra)','err');
+      body.script=sc;body.style=$('#bStyle').value;body.topic=$('#bTopic').value.trim()||null;S.bDraft=sc}
+    S.fcBusy=true;renderLeft();
+    try{S.fc=await send('POST',`/projects/${S.pid}/factcheck`,body,240000);await loadProject();
+      const n=S.fc.counts||{};toast(`DeepSeek: ${S.fc.score}/100 · ${n.sai||0} sai · ${n.chua_chac||0} chưa chắc`,(n.sai||0)?'err':'ok');loadCredits(true)}
+    catch(e){toast(e.message,'err')}
+    finally{S.fcBusy=false;renderLeft();if(w==='broll'&&S.bDraft&&$('#bScript'))$('#bScript').value=S.bDraft}},
+  fcFix:el=>{const fc=S.fc||((S.project||{}).settings||{}).factcheck,c=fc&&fc.claims[+el.dataset.i],t=$('#bScript');if(!c||!t)return;
+    if(!t.value.includes(c.quote))return toast('Không còn thấy câu này trong kịch bản','err');
+    t.value=t.value.replace(c.quote,c.fix);c.found=false;S.bDraft=t.value;toast('Đã thay câu — bấm “Tạo video tự động” khi sẵn sàng','ok');lBroll();$('#bScript').value=S.bDraft},
+  fcApplyAll:()=>{const fc=S.fc||((S.project||{}).settings||{}).factcheck;if(!fc||!fc.corrected_script)return;
+    if(!confirm('Thay toàn bộ kịch bản trong ô bằng bản DeepSeek đã sửa?'))return;S.bDraft=fc.corrected_script;lBroll();$('#bScript').value=S.bDraft;toast('Đã dùng bản đã sửa','ok')},
+  fcToggle:()=>{S.fcAll=!S.fcAll;const d=$('#bScript')?$('#bScript').value:null;renderLeft();if(d!=null&&$('#bScript'))$('#bScript').value=d},
+  fcToChat:()=>{const fc=S.fc||((S.project||{}).settings||{}).factcheck;if(!fc)return;
+    const lines=fc.claims.filter(c=>['sai','chua_chac'].includes(c.verdict)).map(c=>`- “${c.quote}” → ${c.fix||'diễn đạt thận trọng hơn ('+c.reason+')'}`)
+      .concat((fc.issues||[]).filter(x=>x.fix).map(x=>`- ${x.quote?'“'+x.quote+'” ':''}${x.problem} → ${x.fix}`));
+    S.chatDraft='Sửa nội dung phụ đề theo kết quả kiểm chứng của DeepSeek (chỉ sửa chữ, giữ thời gian):\n'+lines.slice(0,30).join('\n');
+    S.rtab='chat';renderRight();ACT.chatSend()},
+  bKeys:async()=>{
+    const b={};if($('#kPexels').value.trim())b.pexels=$('#kPexels').value.trim();if($('#kPixabay').value.trim())b.pixabay=$('#kPixabay').value.trim();
+    if(!Object.keys(b).length)return toast('Dán key vào ô trước','err');
+    try{const r=await send('PUT','/broll/keys',b,30000);S.bstyles.keys=r.keys;
+      const msg=Object.entries(r.test).map(([s,t])=>`${s}: ${t.ok?'✓ dùng được':'✗ '+t.detail}`).join('\n');toast(msg||'Đã lưu',Object.values(r.test).every(t=>t.ok)?'ok':'err');lBroll()}catch(e){toast(e.message,'err')}},
+  bCredits:async()=>{try{const t=await (await fetch(`/api/projects/${S.pid}/broll/credits`)).text();
+    await navigator.clipboard.writeText(t).catch(()=>{});alert(t+'\n\n(Đã sao chép — dán vào mô tả video)')}catch(e){toast(e.message,'err')}},
   openUpdate:()=>{S.menu='settings';S.connForm=null;renderMenu();renderLeft();const h=$('#updH');if(h)h.scrollIntoView({block:'start'})},
   updCheck:()=>checkUpdate(true),
   updDownload:async()=>{try{S.upd.download=await send('POST','/system/update/download');lSettings();pollUpdate()}catch(e){toast(e.message,'err')}},
@@ -1081,25 +1197,33 @@ const ACT={
     try{const r=await send('POST','/system/update/apply');S.upd.download=r;lSettings();
       document.body.insertAdjacentHTML('beforeend','<div style="position:fixed;inset:0;background:#000c;z-index:999;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff">Đang cập nhật lên v'+esc(S.upd.latest)+'… ứng dụng sẽ tự mở lại.</div>')}
     catch(e){toast(e.message,'err')}},
+  fixHere:()=>{
+    if(!S.pid)return toast('Hãy chọn một dự án trước','err');
+    if(!S.cfg.has_api_key)return toast('Kết nối Claude trong ⚙ Cài đặt để dùng trợ lý AI','err');
+    const t=nowT();pause();S.chatAt=t;S.chatCue=(S.cues||[]).find(c=>c.start_seconds<=t&&t<c.end_seconds)||null;
+    S.rtab='chat';renderRight();setTimeout(()=>{const x=$('#chatIn');if(x)x.focus()},30)},
+  fixClear:()=>{S.chatAt=null;S.chatCue=null;renderRight()},
   openChat:()=>{S.rtab='chat';renderRight();setTimeout(()=>{const t=$('#chatIn');if(t)t.focus()},30)},
   chatChip:el=>{S.chatDraft=el.dataset.t;ACT.chatSend()},
   chatClear:async()=>{try{S.chat=await api(`/projects/${S.pid}/chat`,{method:'DELETE'});renderRight()}catch(e){toast(e.message,'err')}},
   chatSend:async()=>{
     const t=$('#chatIn'),msg=((t&&t.value)||S.chatDraft||'').trim();if(!msg||S.chatBusy||!S.pid)return;
     if(S.dirty&&!confirm('Bạn có thay đổi chưa lưu trên bản dựng. AI sẽ sửa từ bản đã lưu — bỏ thay đổi chưa lưu?'))return;
-    S.chatBusy=true;S.chatDraft='';S.chat=[...S.chat,{role:'user',text:msg}];renderRight();
-    try{const r=await send('POST',`/projects/${S.pid}/chat`,{message:msg},240000);
+    const ar=$('#autoRe');if(ar)S.autoRe=ar.checked;
+    const at=S.chatAt,body={message:msg,auto_render:S.autoRe!==false,...(at!=null?{at_time:+at.toFixed(2)}:{}),...(S.mode==='export'&&S.exportId?{render_id:S.exportId}:{})};
+    S.chatBusy=true;S.chatDraft='';S.chat=[...S.chat,{role:'user',text:msg,at_time:at}];S.chatAt=null;S.chatCue=null;renderRight();
+    try{const r=await send('POST',`/projects/${S.pid}/chat`,body,240000);
       await loadChat();S.project=r.project||S.project;
       S.opts={...OPTS0,aspect_ratio:S.project.aspect_ratio||'16:9',...((S.project.settings||{}).render_opts||{})};
       await Promise.all([loadPlans(true),loadCues(),loadRenders()]);
-      if(r.regenerating||r.rendering){S.wasBusy=true;await loadProject();toast(r.regenerating?'AI đang làm lại toàn bộ bản dựng…':'Đang dựng video xem thử…')}
+      if(r.regenerating||r.rendering||r.queued){S.wasBusy=true;S.autoView={at:at??null};await loadProject();
+        toast(r.regenerating?'AI đang làm lại toàn bộ bản dựng — xong sẽ tự dựng lại video…':r.queued?'Đã sửa — sẽ dựng lại ngay khi lần dựng hiện tại xong':'Đã sửa — đang dựng lại video ngầm, xong sẽ tự phát bản mới')}
       S.chatBusy=false;renderAll();loadCredits(true)}
     catch(e){S.chatBusy=false;S.chat=[...S.chat,{role:'assistant',text:'✗ '+e.message}];renderRight()}
   },
   autoEdit:async()=>{
     await loadReady();
-    if(S.ready&&!S.ready.complete&&S.ready.can_fill){return ACT.autofill()}
-    if(S.ready&&S.ready.blocked&&S.ready.blocked.length&&!S.plan){toast('Còn thiếu: '+S.ready.blocked.join(', '),'err');S.menu='assets';renderMenu();renderLeft();return}
+    if(!S.plan)return ACT.auto();          // chưa có bản dựng: làm trọn gói từ đầu tới video thành phẩm
     S.chatDraft='Tự động tối ưu toàn bộ bản dựng như editor chuyên nghiệp: hook 8 giây đầu thật mạnh, nhịp cắt hợp với lời đọc, chọn cảnh khớp nội dung từng câu, màu sắc đồng nhất, chuyển cảnh và zoom hợp lý.';
     ACT.chatSend();
   },
@@ -1149,7 +1273,7 @@ const ACT={
     const svc=el.dataset.svc,t=$('#t-'+svc);t.style.color='';t.textContent='Đang kết nối…';
     const bad=keyProblem($('#cKey').value.trim(),$('#cUrl').value.trim());if(bad){t.textContent='✗ '+bad;t.style.color='var(--er)';return}
     const body={service:svc,id:(S.connForm||{}).id||null,name:$('#cName').value.trim(),base_url:$('#cUrl').value.trim(),user_agent:$('#cUa').value.trim(),api_key:$('#cKey').value.trim()};
-    if(svc==='llm'){body.protocol=$('#cProto').value;body.model=$('#cModel').value.trim();body.fast_model=$('#cFast').value.trim();const bg=$('#cBudget').value.trim();body.budget_usd=bg===''?0:+bg}else if(svc==='openai_tts'){body.model=$('#cModel').value.trim()}
+    if(svc==='llm'){body.protocol=$('#cProto').value;body.model=$('#cModel').value.trim();body.fast_model=$('#cFast').value.trim();const bg=$('#cBudget').value.trim();body.budget_usd=bg===''?0:+bg}else if(svc==='deepseek'){body.model=$('#cModel').value.trim();body.fast_model=$('#cFast').value.trim()}else if(svc==='openai_tts'){body.model=$('#cModel').value.trim()}
     if(!body.api_key&&!body.id){t.textContent='Dán API key vào ô bên trên — ứng dụng sẽ tự kết nối.';return}
     S.connBusy=true;const keySent=body.api_key;
     try{const r=await send('POST','/connections',body,90000);
@@ -1245,6 +1369,7 @@ document.addEventListener('change',async e=>{
     try{await send('POST','/connections',{service:t.dataset.svc,id:t.dataset.connEnabled,enabled:t.checked,force:true,set_active:false});await loadConns();lSettings()}catch(err){toast(err.message,'err')}
   }else if(t.id==='autoFillChk'){
     try{S.project=await api('/projects/'+S.pid,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({settings:{...(S.project.settings||{}),autofill:t.checked}})});toast(t.checked?'Sẽ tự bổ sung bằng AI khi thêm file':'Đã tắt tự bổ sung','ok')}catch(err){toast(err.message,'err')}
+  }else if(t.id==='bStyle'){S.bStyle=t.value;S.bMedia=null;lBroll();
   }else if(t.id==='perfMode'){
     try{S.hw=await send('PUT','/system/perf',{mode:t.value});lSettings();pollSys();toast('Đã đổi chế độ hiệu năng','ok')}catch(err){toast(err.message,'err')}
   }else if(t.id==='updSrc'||t.id==='updAuto'){

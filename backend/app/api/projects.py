@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from pydantic import BaseModel
 
 from ..database import get_db
-from ..models import Asset, EditPlanRow, Project, Render, SrtCue, to_dict
+from ..models import Asset, EditPlanRow, Project, SrtCue, to_dict
 from ..services.ffmpeg_service import probe
 from ..services import storage_service
 from ..services.srt_service import parse_srt

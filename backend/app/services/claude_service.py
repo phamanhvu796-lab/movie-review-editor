@@ -5,7 +5,10 @@ from dataclasses import dataclass, field
 
 from concurrent.futures import ThreadPoolExecutor
 
-from anthropic import Anthropic
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:                       # chỉ để gợi ý kiểu; không bắt buộc cài SDK khi import module
+    from anthropic import Anthropic
 
 from ..config import settings
 from ..schemas import EditPlan, PlanContext
@@ -125,7 +128,7 @@ def _generate_chunk(client, ctx: PlanContext, part: str, use: Counter, filters: 
     return PlanResult("needs_manual_review", None, raw, issues, max_retries + 1)
 
 
-def generate_edit_plan(ctx: PlanContext, client: Anthropic | None = None, max_retries: int | None = None,
+def generate_edit_plan(ctx: PlanContext, client: "Anthropic | None" = None, max_retries: int | None = None,
                        chunk_size: int = CHUNK_SIZE, max_parallel: int = 3) -> PlanResult:
     """Phần 1 chạy trước (chốt bảng filter và các cảnh hook); các phần còn lại chạy SONG SONG chỉ với filter
     của phần 1 (đồng nhất màu, luôn <= 3 filter). Sau đó đối chiếu tuần tự: phần nào xung đột cảnh đã dùng

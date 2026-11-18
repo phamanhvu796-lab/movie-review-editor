@@ -4,12 +4,13 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..config import clean_key, key_problem, settings, url_problem
-from ..services import credit_service, tts_service
+from ..services import credit_service, deepseek, tts_service
 from ..services.llm_sources import default_name, mask_conn, test_connection
 
 router = APIRouter(prefix="/api")
-SERVICES = ("llm", "elevenlabs", "openai_tts")
-PROTO = {"llm": "auto", "elevenlabs": "elevenlabs", "openai_tts": "openai"}
+SERVICES = ("llm", "deepseek", "elevenlabs", "openai_tts")
+PROTO = {"llm": "auto", "deepseek": "anthropic", "elevenlabs": "elevenlabs", "openai_tts": "openai"}
+LLM_LIKE = ("llm", "deepseek")           # DeepSeek: kết nối y như Claude (Messages API), dùng riêng để kiểm tra kịch bản
 
 
 class ConnIn(BaseModel):
@@ -27,6 +28,7 @@ class ConnIn(BaseModel):
     budget_usd: float | None = None      # hạn mức tự đặt (USD) để app tự trừ chi phí ước tính
     force: bool = False                  # True = lưu luôn, không kiểm tra
     set_active: bool | None = None       # mặc định: nguồn mới thì đặt làm đang dùng
+    preset: str | None = None            # "deepseek": tự điền Base URL / kiểu API / model của DeepSeek
 
 
 FIELDS = ("name", "protocol", "base_url", "user_agent", "api_key", "model", "fast_model", "enabled", "budget_usd")
@@ -39,7 +41,20 @@ def _svc(s: str | None) -> str:
     return s
 
 
+def _apply_preset(svc: str, lst: list[dict], body: ConnIn) -> None:
+    if svc == "deepseek":
+        body.preset = "deepseek"
+    if body.preset != "deepseek" or svc not in LLM_LIKE:
+        return
+    for k, v in deepseek.preset().items():
+        if getattr(body, k) in (None, ""):
+            setattr(body, k, v)
+    if not body.id:                      # đã có nguồn DeepSeek -> cập nhật key cho nguồn đó, không tạo trùng
+        body.id = next((c["id"] for c in lst if deepseek.is_deepseek(c)), None)
+
+
 def _merge(svc: str, lst: list[dict], body: ConnIn) -> tuple[dict, dict | None]:
+    _apply_preset(svc, lst, body)
     cur = next((c for c in lst if c["id"] == body.id), None) if body.id else None
     merged = dict(cur) if cur else {"id": body.id or uuid.uuid4().hex[:8], "service": svc, "name": "", "protocol": PROTO[svc],
                                     "base_url": "", "user_agent": "", "api_key": "", "model": "", "fast_model": "", "enabled": True}
@@ -50,7 +65,7 @@ def _merge(svc: str, lst: list[dict], body: ConnIn) -> tuple[dict, dict | None]:
         merged[k] = v.strip() if isinstance(v, str) else v
     merged["api_key"] = clean_key(merged["api_key"])
     merged["service"] = svc
-    if svc != "llm":
+    if svc not in LLM_LIKE:
         merged["protocol"] = PROTO[svc]
     return merged, cur
 
@@ -68,7 +83,7 @@ def _listing():
 def _test(conn: dict) -> dict:
     if not conn.get("api_key"):
         return {"ok": False, "detail": "Chưa có API key", "models": []}
-    return test_connection(conn) if conn["service"] == "llm" else {**tts_service.test_tts_source(conn), "models": []}
+    return test_connection(conn) if conn["service"] in LLM_LIKE else {**tts_service.test_tts_source(conn), "models": []}
 
 
 @router.get("/connections")
@@ -100,13 +115,13 @@ def save(body: ConnIn):
         res = _test(merged)
         if not res["ok"]:
             return {"ok": False, "detail": res["detail"], "models": [], "trace": res.get("trace", [])}
-        if svc == "llm":
+        if svc in LLM_LIKE:
             merged["protocol"] = res["protocol"]
             merged["model"] = merged.get("model") or res["model"]
-    elif svc == "llm" and merged["protocol"] == "auto":
+    elif svc in LLM_LIKE and merged["protocol"] == "auto":
         merged["protocol"] = "anthropic"
     if not merged["name"]:
-        merged["name"] = default_name(merged) if merged.get("base_url") else {"llm": "Claude", "elevenlabs": "ElevenLabs", "openai_tts": "OpenAI TTS"}[svc]
+        merged["name"] = default_name(merged) if merged.get("base_url") else {"llm": "Claude", "deepseek": "DeepSeek", "elevenlabs": "ElevenLabs", "openai_tts": "OpenAI TTS"}[svc]
     if cur is not None:
         lst[lst.index(cur)] = merged
     else:
@@ -118,6 +133,11 @@ def save(body: ConnIn):
     settings.save_connections(lst, active, svc)
     credit_service.invalidate()
     return {"ok": True, "detail": res.get("detail", "Đã lưu"), "models": res.get("models", []), **_listing()}
+
+
+@router.get("/connections/presets")
+def presets():
+    return {"deepseek": deepseek.preset()}
 
 
 @router.put("/connections/active")

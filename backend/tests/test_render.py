@@ -1,5 +1,6 @@
 from app.schemas import EditPlan
-from app.services.render_service import plan_segments, segment_filter, RenderOptions, subtitle_filter
+from app.schemas import Cue
+from app.services.render_service import plan_segments, segment_filter, RenderOptions, subtitle_ass
 from tests.helpers import make_plan
 
 
@@ -29,9 +30,16 @@ def test_segment_filter_features():
     assert "zoompan" not in segment_filter(p.sections[0].visuals[0], 1280, 720, 30, 90)
 
 
-def test_subtitle_filter_vertical_uses_larger_margin():
-    o = RenderOptions()
-    assert "MarginV=70" in subtitle_filter(o, 1920, 1080) and "MarginV=260" in subtitle_filter(o, 1080, 1920)
+def test_subtitle_ass_uses_real_pixel_canvas_and_margins():
+    o = RenderOptions(subtitle_size=54)
+    cues = [Cue(index=1, start=0, end=2.5, text="Dòng 1\nDòng {2}"), Cue(index=2, start=3725.5, end=3727, text="  ")]
+    h = subtitle_ass(o, 1920, 1080, cues)
+    assert "PlayResX: 1920" in h and "PlayResY: 1080" in h
+    assert "Style: Default,Arial,54," in h and h.split("Style: Default")[1].split("\n")[0].endswith(",60,60,70,1")
+    assert "Dialogue: 0,0:00:00.00,0:00:02.50,Default,,0,0,0,,Dòng 1\\NDòng \\{2\\}" in h
+    assert h.count("Dialogue:") == 1                       # câu rỗng bị bỏ
+    v = subtitle_ass(o, 1080, 1920, cues)
+    assert "PlayResY: 1920" in v and v.split("Style: Default")[1].split("\n")[0].endswith(",260,1")
 
 
 def test_segment_key_depends_on_content_and_params(tmp_path):

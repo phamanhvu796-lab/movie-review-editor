@@ -31,6 +31,43 @@ Không build chéo được: phải build trên Windows để ra file .exe.
 ## Chạy thử không build
 `run_dev.bat` (Windows) hoặc `./run_dev.sh` (Linux/macOS, cần ffmpeg trong PATH).
 
+## Bản sửa v1.7.1
+
+- **Phụ đề in vào video bị to và nằm giữa màn hình** → đã sửa: chữ đúng cỡ, nằm sát đáy, giống bản xem nhanh.
+- **⚡ Tự động tạo video / Tự động edit** chạy trọn gói tới **video thành phẩm 1080p** (lưu vào thư mục đầu ra), xong tự phát bản mới:
+  - Có footage phim: phân tích cảnh → bản dựng → xuất video.
+  - Không có footage (chỉ kịch bản hoặc SRT + voice MP3): tự tìm ảnh/video miễn phí bản quyền → dựng khớp giọng → xuất video.
+- Bỏ qua file voice/footage bị lỗi khi dựng; không tự chạy quy trình nặng khi mới thêm file mà chưa có footage.
+
+## Mới trong v1.7.0 — Sửa đoạn chưa ưng + DeepSeek kiểm chứng kịch bản
+
+- **📍 Sửa đoạn này** (thanh phát video): xem tới đoạn chưa ưng → bấm → gõ điều muốn sửa vào Trợ lý AI. Claude biết chính xác câu phụ đề và cảnh ở thời điểm đó, sửa bản dựng rồi **tự dựng lại video ngầm** (cùng chất lượng bản đang xem). Xong app tự phát bản mới, quay về đúng đoạn vừa sửa.
+- Đang dựng vẫn chat được: yêu cầu mới được ghi nhớ và dựng lại ngay khi lần dựng hiện tại xong.
+- **🔎 DeepSeek — kiểm tra kịch bản & kiểm chứng thông tin**: mục riêng trong ⚙ Cài đặt, dán API key DeepSeek là tự kết nối (giống Claude). Dùng ở:
+  - Kịch bản → Video: nút “🔎 Kiểm tra kịch bản” (đánh dấu Sai / Chưa chắc / Nên nêu nguồn, thay từng câu hoặc dùng cả bản đã sửa). Khi tạo video tự động, kịch bản AI viết được DeepSeek soát và tự sửa.
+  - Kịch bản (phụ đề): “🔎 Kiểm tra phụ đề” → “Nhờ trợ lý Claude sửa phụ đề theo đề xuất”.
+  - Hiện số dư DeepSeek (USD/CNY) và chi phí ước tính.
+  - Lưu ý: DeepSeek đánh giá theo hiểu biết của model, không tự tra cứu web.
+
+## Mới trong v1.6.0 — Kịch bản → Video (tự tìm hình minh hoạ)
+Menu **🎬 Kịch bản → Video**: chọn phong cách, chọn hình minh hoạ **Ảnh / Video / Kết hợp**, nhập **chủ đề** (AI viết
+kịch bản) hoặc **dán kịch bản** → **⚡ Tạo video tự động**:
+1. Giọng đọc AI (ElevenLabs/OpenAI) + **phụ đề SRT khớp từng câu** (hoặc dùng voice-over bạn tải lên / tách từ video người dẫn).
+2. Claude đọc từng câu → chọn từ khoá + ảnh hay video → app tìm & tải từ kho **miễn phí bản quyền, dùng thương mại được**:
+   **Pexels**, **Pixabay** (cần API key miễn phí, nhập ngay trong menu) và **Wikimedia Commons** (ảnh tư liệu, không cần key).
+   Không lấy ảnh Google/YouTube (bản quyền → dễ bị gậy). Ảnh Wikimedia cần ghi nguồn: nút **📄 Nguồn hình** sao chép sẵn.
+3. Lắp bản dựng theo phong cách (nhịp cắt, khung 16:9/9:16, zoom Ken Burns cho ảnh, chuyển cảnh, màu, cỡ phụ đề) → xem thử.
+   Sau đó chỉnh bằng 🤖 Chat AI như mọi bản dựng.
+
+**19 phong cách**: 📰 Tin tức (người dẫn, tin ngắn dọc, phóng sự hiện trường, tổng hợp tin, đồ hoạ giải thích, livestream*),
+📜 Lịch sử (tài liệu, tái hiện, hoạt hình, “Bạn có biết…”, tư liệu cũ, kể chuyện), 💰 Tài chính (giảng giải, faceless,
+hoạt hình, tạp kỹ/phỏng vấn, tin ngắn, hướng dẫn, MV).
+- Phong cách cần người thật (người dẫn, phỏng vấn, hiện trường, tái hiện, tạp kỹ): app không tạo người thật; tải video
+  bạn tự quay (loại Footage) → app tách giọng, xen kẽ cảnh người dẫn **đúng thời điểm nói** với hình minh hoạ.
+- *Livestream là phát trực tiếp, không phải dựng video → không hỗ trợ.
+- Hoạt hình / đồ hoạ: dùng hình minh hoạ (illustration) có sẵn trên kho + hiệu ứng chuyển động, không tự vẽ hoạt hình.
+- Ảnh/video tải về được cắt ngắn, bỏ tiếng; dựng lại thì hình không dùng nữa tự xoá → không tốn ổ đĩa.
+
 ## Mới trong v1.5.0
 - **Tài khoản**: màn hình khoá có 2 tab **Đăng nhập | Đăng ký**. Đăng ký gửi yêu cầu lên tool Admin → Admin duyệt và gửi
   **mã kích hoạt** (`XXXX-XXXX`) → nhập vào app. Máy đã kích hoạt đăng nhập không cần mạng; đăng nhập tài khoản trên
