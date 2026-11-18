@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="/favicon.png">
 <title>Trình dựng video review phim AI</title>
 <style>
 :root{--bg:#101318;--p1:#171b22;--p2:#1e242d;--p3:#283140;--bd:#2c3441;--tx:#e6e9ee;--mut:#8b95a3;--ac:#4c7dff;--ac2:#3a62d6;--ok:#3fc79a;--er:#ff7b72;--wa:#e3b341}
@@ -21,7 +22,8 @@ hr{border:0;border-top:1px solid var(--bd);margin:14px 0}small{color:var(--mut);
 #gate{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(circle at 30% 20%,#1a2233,#0d1015);z-index:50}
 #gate .box{width:440px;max-width:92vw;background:var(--p1);border:1px solid var(--bd);border-radius:14px;padding:28px;display:grid;gap:12px}
 #gate h1{margin:0;font-size:20px}#gate p{margin:0;color:var(--mut)}#gate details{color:var(--mut)}#gate details input{margin-top:8px;width:100%}#gMsg{white-space:pre-wrap;word-break:break-word;max-height:38vh;overflow:auto;font-size:12px}
-#gate .lock{font-size:34px;text-align:center}#gate h1{text-align:center}#gate p{text-align:center}
+#gate .lock{width:64px;height:64px;margin:0 auto;display:block}
+.brand{display:inline-flex;align-items:center;gap:8px}.brand img{width:22px;height:22px}#gate h1{text-align:center}#gate p{text-align:center}
 #updBadge{cursor:pointer;border-radius:20px;padding:3px 10px;font-size:12px;background:#7c3aed;color:#fff;white-space:nowrap}
 .upd{border:1px solid var(--bd);border-radius:8px;padding:10px;display:grid;gap:6px}.upd pre{white-space:pre-wrap;max-height:160px;overflow:auto;font-size:11px;margin:0;color:var(--mut)}
 .bar{height:6px;background:var(--bd);border-radius:3px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
@@ -109,7 +111,7 @@ dialog{background:var(--p1);color:var(--tx);border:1px solid var(--bd);border-ra
 
 <div id="gate" hidden>
  <form class="box" id="gForm" autocomplete="off" onsubmit="return false">
-  <div class="lock">🔒</div>
+  <img class="lock" src="/logo-white.png" alt="logo">
   <h1>Movie Review Editor</h1>
   <!-- CHẾ ĐỘ TÀI KHOẢN -->
   <div id="accBox" class="gpane" hidden>
@@ -154,7 +156,7 @@ dialog{background:var(--p1);color:var(--tx);border:1px solid var(--bd);border-ra
 
 <div id="app" hidden>
  <header id="top">
-  <span class="brand">🎬 Dựng review AI</span><span id="ver" class="mut"></span>
+  <span class="brand"><img src="/logo-white.png" alt="">Dựng review AI</span><span id="ver" class="mut"></span>
   <span id="projName" class="mut"></span>
   <span class="grow" id="topStatus"></span>
   <button class="p" data-act="auto">⚡ Tự động tạo video</button>

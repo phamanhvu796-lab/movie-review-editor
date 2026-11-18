@@ -1,5 +1,6 @@
 <!doctype html>
 <html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="icon" type="image/png" href="/admin/static/favicon.png">
 <title>Movie Review Editor — Admin</title>
 <style>
 :root{--bg:#0f1216;--p:#171b21;--p2:#1e232b;--bd:#2b313b;--tx:#e6e9ee;--mut:#8b94a3;--ac:#4c7dff;--ok:#3fb950;--wa:#d29922;--er:#f85149;--vi:#a371f7}
@@ -33,12 +34,12 @@ small{color:var(--mut)}
 textarea{width:100%;font:inherit;color:inherit;background:var(--p2);border:1px solid var(--bd);border-radius:6px;padding:8px}
 </style></head>
 <body>
-<div id="gate" hidden><div class="box"><h2 style="margin:0">🛡 Admin — Movie Review Editor</h2><p id="gHint" class="mut"></p>
+<div id="gate" hidden><div class="box"><img src="/admin/static/logo-white.png" alt="" style="width:56px;height:56px;margin:0 auto"><h2 style="margin:0;text-align:center">Admin — Movie Review Editor</h2><p id="gHint" class="mut"></p>
  <input id="gPw" type="password" placeholder="Mật khẩu Admin"><input id="gPw2" type="password" placeholder="Nhập lại mật khẩu" hidden>
  <button class="p" id="gGo">Đăng nhập</button><div id="gMsg" class="er"></div></div></div>
 
 <div id="app" hidden>
-<header><h1>🛡 Quản lý giấy phép — Movie Review Editor</h1><span id="srv" class="mut"></span><button id="logout">Đăng xuất</button></header>
+<header><img src="/admin/static/logo-white.png" alt="" style="width:24px;height:24px"><h1>Quản lý giấy phép — Movie Review Editor</h1><span id="srv" class="mut"></span><button id="logout">Đăng xuất</button></header>
 <div class="wrap">
  <div class="cards">
   <div class="card"><h3>Gắn vào bản build của app (1 lần)</h3>

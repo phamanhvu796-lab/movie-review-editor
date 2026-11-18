@@ -59,7 +59,11 @@ async def require_login(request: Request, call_next):
             st = license_service.state()
             return JSONResponse({"detail": st["message"] or "Máy chưa được cấp phép", "license_required": True},
                                 status_code=402)
-    return await call_next(request)
+    resp = await call_next(request)
+    if not path.startswith("/api/"):
+        # Giao diện luôn tải bản mới nhất (sau khi cập nhật app không bị kẹt giao diện cũ trong bộ nhớ đệm)
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"
+    return resp
 
 
 for r in (auth_api.router, assist.router, projects.router, edit_plans.router, renders.router, voice.router, auto.router, connections.router, system.router, settings_api.router):

@@ -30,6 +30,9 @@ ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#MyAppExe}
+#ifexist "..\backend\app.ico"
+SetupIconFile=..\backend\app.ico
+#endif
 CloseApplications=force
 RestartApplications=no
 SetupLogging=yes

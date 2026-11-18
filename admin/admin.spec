@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 # Build tool Admin thành 1 file:  pyinstaller --noconfirm --clean admin.spec   -> dist/MovieReviewEditor-Admin.exe
+import os
+
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 datas = [("admin_app/static", "admin_app/static")]
@@ -15,4 +17,5 @@ hiddenimports += ["clr", "webview.platforms.winforms", "webview.platforms.edgech
 a = Analysis(["admin_launcher.py"], pathex=["."], binaries=binaries, datas=datas, hiddenimports=hiddenimports,
              excludes=["tkinter", "pytest"])
 pyz = PYZ(a.pure)
-exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="MovieReviewEditor-Admin", console=False, upx=False)
+exe = EXE(pyz, a.scripts, a.binaries, a.datas, [], name="MovieReviewEditor-Admin", console=False, upx=False,
+          icon="app.ico" if os.path.isfile("app.ico") else None)

@@ -57,7 +57,10 @@ async def guard(request: Request, call_next):
             tok = request.cookies.get(COOKIE)
             if not tok or _sessions.get(tok, 0) < time.time():
                 return JSONResponse({"detail": "Cần đăng nhập Admin", "login_required": True}, status_code=401)
-    return await call_next(request)
+    resp = await call_next(request)
+    if not path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-cache, must-revalidate"      # luôn tải giao diện Admin mới nhất
+    return resp
 
 
 # ================================================================== API cho app khách
